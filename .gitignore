@@ -1,0 +1,36 @@
+### Gradle ###
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+
+### Java ###
+*.class
+out/
+
+### IntelliJ IDEA ###
+.idea/
+*.iml
+*.ipr
+*.iws
+
+### macOS ###
+.DS_Store
+
+### Logs ###
+*.log
+logs/
+
+### Environment / secrets ###
+.env
+.env.*
+!.env.example
+
+### Spring local config ###
+application-local.yml
+application-local.yaml
+application-local.properties
+
+### Temporary files ###
+*.tmp
+*.swp
+*.swo
