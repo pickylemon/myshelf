@@ -34,3 +34,12 @@ application-local.properties
 *.tmp
 *.swp
 *.swo
+
+### Personal AI / Agent settings ###
+.claude/
+.codex/
+.agents/
+.agent/
+
+CLAUDE.md
+AGENTS.md
