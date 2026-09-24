@@ -76,3 +76,41 @@ Spring Boot 4에서는 외부 라이브러리 본체와 Spring Boot 자동설정
 
 라이브러리 의존성만 추가했는데 자동설정이 동작하지 않는다면,
 해당 기능의 Spring Boot integration module 또는 starter가 별도로 필요한지 확인이 필요하다.
+
+---
+
+## `@RestController`의 value를 URL 경로로 착각
+
+- 발생일: 2026-09-24
+- 환경: Spring Boot 4.1.1 / Spring MVC
+
+### 증상
+
+다음과 같이 작성했지만 `/users`가 Controller의 기본 URL로 매핑되지 않았다.
+
+```java
+@RestController("/users")
+public class UserController {
+}
+```
+
+### 원인
+
+`@RestController`의 `value`는 URL이 아니라 Spring Bean 이름이다.
+
+### 해결
+
+URL prefix는 `@RequestMapping`으로 지정한다.
+
+```java
+@RestController
+@RequestMapping("/users")
+public class UserController {
+}
+```
+
+### 정리
+
+`@RestController("...")`는 Bean 이름이고,
+요청 URL은 `@RequestMapping`, `@GetMapping`, `@PostMapping` 등이 담당한다.
+
