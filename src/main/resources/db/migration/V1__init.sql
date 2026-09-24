@@ -1,8 +1,10 @@
 create table users
 (
     id       uuid primary key,
-    email    varchar(255) not null unique,
-    password varchar(255) not null
+    email    varchar(255) not null,
+    password varchar(255) not null,
+
+    constraint uk_users_email unique(email)
 );
 
 create table books
