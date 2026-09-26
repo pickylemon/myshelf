@@ -5,6 +5,7 @@ import com.myshelf.user.domain.User;
 import com.myshelf.user.error.UserErrorCode;
 import com.myshelf.user.exception.UserException;
 import java.util.Locale;
+import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -62,5 +63,10 @@ public class UserPersistenceAdapter implements UserRepositoryPort {
     }
 
     return false;
+  }
+
+  @Override
+  public Optional<User> findByEmail(String email) {
+    return userJpaRepository.findByEmail(email).map(UserEntity::toDomain);
   }
 }

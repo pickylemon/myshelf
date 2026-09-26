@@ -14,9 +14,4 @@ public class BCryptPasswordEncoderAdapter implements PasswordEncoderPort {
   public String encode(String rawpassword) {
     return passwordEncoder.encode(rawpassword);
   }
-
-  @Override
-  public boolean matches(String rawpassword, String encodedpassword) {
-    return passwordEncoder.matches(rawpassword, encodedpassword);
-  }
 }
