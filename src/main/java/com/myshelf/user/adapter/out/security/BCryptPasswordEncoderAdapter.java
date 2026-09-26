@@ -1,4 +1,4 @@
-package com.myshelf.user.adapter.out.persistence;
+package com.myshelf.user.adapter.out.security;
 
 import com.myshelf.user.application.port.out.PasswordEncoderPort;
 import lombok.RequiredArgsConstructor;
