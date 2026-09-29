@@ -24,7 +24,7 @@ import tools.jackson.databind.ObjectMapper;
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@ActiveProfiles("local")
+@ActiveProfiles({"local", "test"})
 class UserSignUpIntegrationTest {
 
   @Autowired MockMvc mockMvc;

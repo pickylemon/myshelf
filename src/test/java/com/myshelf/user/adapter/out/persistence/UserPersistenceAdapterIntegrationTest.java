@@ -23,7 +23,7 @@ import org.springframework.test.context.ActiveProfiles;
  * 위해 @SpringBootTest를 사용한다.
  */
 @SpringBootTest
-@ActiveProfiles("local")
+@ActiveProfiles({"local", "test"})
 class UserPersistenceAdapterIntegrationTest {
 
   @Autowired UserPersistenceAdapter userPersistenceAdapter;
