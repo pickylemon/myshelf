@@ -41,23 +41,23 @@ username/password 인증을 Spring Security의 `AuthenticationManager`에 위임
 
 ```text
 AuthService
-    ↓
+   ↓
 AuthenticationPort
-    ↓
+   ↓
 SpringSecurityAuthenticationAdapter
-    ↓
+   ↓
 AuthenticationManager
-    ↓
+   ↓
 ProviderManager
-    ↓
+   ↓
 DaoAuthenticationProvider
-    ├─ UserDetailsService
-    │    ↓
-    │  UserDetailsServiceAdapter
-    │    ↓
-    │  FindUserByEmailUseCase
-    │
-    └─ PasswordEncoder
+   ├─ UserDetailsService
+   │    ↓
+   │  UserDetailsServiceAdapter
+   │    ↓
+   │  FindUserByEmailUseCase
+   │
+   └─ PasswordEncoder
 ```
 
 ### Application 계층
@@ -66,11 +66,11 @@ DaoAuthenticationProvider
 
 ```text
 AuthService
-    ↓
+   ↓
 AuthenticationPort
-    ↓
+   ↓
 AuthenticatedUser
-    ↓
+   ↓
 AccessTokenIssuerPort
 ```
 
@@ -111,15 +111,15 @@ public record AuthenticatedUser(UUID userId) {
 
 ```text
 email/password
-    ↓
+   ↓
 UsernamePasswordAuthenticationToken
-    ↓
+   ↓
 AuthenticationManager
-    ↓
+   ↓
 인증 성공 Authentication
-    ↓
+   ↓
 AuthUserPrincipal
-    ↓
+   ↓
 AuthenticatedUser
 ```
 
@@ -135,13 +135,13 @@ Spring Security는 MyShelf의 사용자 조회 방식과 도메인 모델을 알
 
 ```text
 DaoAuthenticationProvider
-    ↓
+   ↓
 UserDetailsService
-    ↑
+   ↑
 UserDetailsServiceAdapter
-    ↓
+   ↓
 FindUserByEmailUseCase
-    ↓
+   ↓
 User
 ```
 
@@ -159,10 +159,10 @@ MyShelf의 도메인 `User`가 Spring Security의 `UserDetails`를 직접 구현
 
 ```text
 MyShelf User
-    ↓
+   ↓
 AuthUserPrincipal
-    implements UserDetails
-    ↓
+   implements UserDetails
+   ↓
 Spring Security
 ```
 
@@ -187,9 +187,9 @@ email은 MyShelf의 로그인 식별자이므로 `UserDetails#getUsername()`을 
 기존
 
 AuthService
-    ↓
+   ↓
 PasswordMatcherPort
-    ↓
+   ↓
 BCryptPasswordMatcherAdapter
 ```
 
@@ -197,9 +197,9 @@ BCryptPasswordMatcherAdapter
 변경 후
 
 DaoAuthenticationProvider
-    ↓
+   ↓
 PasswordEncoder
-    ↓
+   ↓
 BCryptPasswordEncoder
 ```
 
@@ -226,6 +226,68 @@ public AuthenticationManager authenticationManager(
 ```
 
 즉 Spring Security 내부 인증 구성과 애플리케이션 코드에서 주입 가능한 Bean은 구분한다.
+
+### Testing Strategy
+
+인증 실패 응답의 비노출과 timing side-channel 완화는 서로 다른 수준에서 검증한다.
+
+#### 외부 응답 비노출
+
+`LoginIntegrationTest`에서는 다음 두 실패 요청이 외부에서 구분되지 않는지 검증한다.
+
+```text
+존재하지 않는 이메일
+→ 401
+→ INVALID_CREDENTIALS
+
+존재하는 이메일 + 잘못된 비밀번호
+→ 401
+→ INVALID_CREDENTIALS
+```
+
+두 경우의 HTTP 응답을 동일하게 유지하여 응답 내용만으로 이메일 존재 여부를 추측할 수 없도록 한다.
+
+#### timing side-channel 완화
+
+`SpringSecurityAuthenticationAdapterTest`에서는 실제 수행 시간을 직접 비교하지 않는다.
+
+실행 시간은 JIT, GC, CPU 스케줄링, CI 환경 부하 등의 영향을 받기 때문에 일반적인 JUnit 테스트에서 안정적인 검증 기준으로 사용하기 어렵다.
+
+대신 존재하지 않는 사용자에 대해서도 `PasswordEncoder.matches()`가 수행되는지를 검증한다.
+
+```java
+verify(passwordEncoder)
+    .matches(PASSWORD, DUMMY_ENCODED_PASSWORD);
+```
+
+이를 통해 다음과 같이 사용자 미존재 시 비밀번호 비교 자체를 생략하는 구현으로 회귀하지 않는지 확인한다.
+
+```text
+잘못된 비밀번호
+→ 실제 password hash와 password comparison
+→ 인증 실패
+
+존재하지 않는 사용자
+→ dummy password hash와 password comparison
+→ 인증 실패
+```
+
+이 테스트는 두 경로의 실행 시간이 완전히 동일하다는 것을 보장하지 않는다.
+
+목표는 constant-time 인증을 증명하는 것이 아니라, 사용자 존재 여부에 따라 비용이 큰 비밀번호 비교 연산이 완전히 생략되는 명백한 timing 차이를 완화하는 것이다.
+
+`AuthServiceTest`에서는 이러한 인증 세부 동작을 다시 검증하지 않는다.
+
+`AuthService`의 책임은 인증 결과를 받아 Access Token 발급 여부를 조율하는 것이므로 다음만 검증한다.
+
+```text
+인증 성공
+→ AuthenticatedUser의 userId로 Access Token 발급
+
+인증 실패
+→ AuthException 전파
+→ AccessTokenIssuerPort 호출하지 않음
+```
 
 ## Alternatives Considered
 
@@ -268,6 +330,7 @@ public AuthenticationManager authenticationManager(
 
 - Spring Security의 표준 username/password 인증 흐름을 재사용한다.
 - `DaoAuthenticationProvider`가 제공하는 user enumeration timing 완화 기능을 활용할 수 있다.
+- 외부 응답 비노출과 dummy password comparison 동작을 서로 다른 테스트 수준에서 검증할 수 있다.
 - `AuthService`의 책임이 로그인 흐름 조정과 Access Token 발급으로 축소된다.
 - application 계층은 Spring Security 구현 타입에 의존하지 않는다.
 - `FindUserByEmailUseCase`를 통해 기존 user/auth feature boundary를 유지한다.
@@ -278,6 +341,7 @@ public AuthenticationManager authenticationManager(
 - `AuthenticationPort`, `SpringSecurityAuthenticationAdapter`, `UserDetailsServiceAdapter`, `AuthUserPrincipal` 등 인증 흐름을 연결하기 위한 클래스가 추가된다.
 - Spring Security의 `AuthenticationManager`, `ProviderManager`, `DaoAuthenticationProvider`, `UserDetailsService` 간 관계를 이해해야 하므로 초기 학습 비용이 증가한다.
 - Spring Security 인증 예외와 애플리케이션 예외 사이의 변환 정책을 명시적으로 관리해야 한다.
+- timing side-channel을 완전히 제거하거나 constant-time 동작을 보장하는 것은 아니다.
 
 ## Resulting Structure
 
@@ -325,5 +389,7 @@ auth
 비밀번호 인증을 애플리케이션에서 직접 구현하지 않고 Spring Security의 `AuthenticationManager`와 `DaoAuthenticationProvider`에 위임한다.
 
 동시에 `AuthenticationPort`와 Adapter를 사용하여 Spring Security 의존성은 adapter 계층에 한정하고, user feature 접근은 기존 `FindUserByEmailUseCase` 경계를 유지한다.
+
+인증 실패 시에는 존재하지 않는 사용자와 잘못된 비밀번호가 동일한 외부 응답을 반환하도록 하고, 사용자 미존재 시에도 dummy password comparison이 수행되는 구조를 테스트하여 timing side-channel을 완화한다.
 
 이를 통해 Spring Security가 제공하는 검증된 인증 동작을 재사용하면서도 MyShelf의 hexagonal architecture 경계를 유지한다.
