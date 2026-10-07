@@ -1,6 +1,7 @@
 package com.myshelf.user.application.service;
 
 import com.myshelf.global.util.UuidGenerator;
+import com.myshelf.user.application.port.in.FindUserByEmailUseCase;
 import com.myshelf.user.application.port.in.UserSignUpCommand;
 import com.myshelf.user.application.port.in.UserSignUpUseCase;
 import com.myshelf.user.application.port.out.PasswordEncoderPort;
@@ -8,13 +9,14 @@ import com.myshelf.user.application.port.out.UserRepositoryPort;
 import com.myshelf.user.domain.User;
 import com.myshelf.user.error.UserErrorCode;
 import com.myshelf.user.exception.UserException;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
-public class UserService implements UserSignUpUseCase {
+public class UserService implements UserSignUpUseCase, FindUserByEmailUseCase {
   private final UserRepositoryPort userRepositoryPort;
   private final PasswordEncoderPort passwordEncoderPort;
 
@@ -35,5 +37,10 @@ public class UserService implements UserSignUpUseCase {
 
     // 4. 영속화
     return userRepositoryPort.save(user).getId();
+  }
+
+  @Override
+  public Optional<User> findByEmail(String email) {
+    return userRepositoryPort.findByEmail(email);
   }
 }

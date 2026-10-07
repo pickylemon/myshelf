@@ -16,7 +16,6 @@ public class UserControllerAdvice {
     HttpStatus httpStatus =
         switch (errorCode) {
           case DUPLICATE_EMAIL -> HttpStatus.CONFLICT;
-          case USER_NOT_FOUND -> HttpStatus.NOT_FOUND;
         };
 
     ProblemDetail problemDetail =

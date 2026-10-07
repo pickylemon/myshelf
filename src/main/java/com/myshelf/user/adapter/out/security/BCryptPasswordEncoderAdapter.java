@@ -1,4 +1,4 @@
-package com.myshelf.user.adapter.out.persistence;
+package com.myshelf.user.adapter.out.security;
 
 import com.myshelf.user.application.port.out.PasswordEncoderPort;
 import lombok.RequiredArgsConstructor;
@@ -13,10 +13,5 @@ public class BCryptPasswordEncoderAdapter implements PasswordEncoderPort {
   @Override
   public String encode(String rawpassword) {
     return passwordEncoder.encode(rawpassword);
-  }
-
-  @Override
-  public boolean matches(String rawpassword, String encodedpassword) {
-    return passwordEncoder.matches(rawpassword, encodedpassword);
   }
 }
