@@ -1,5 +1,6 @@
 package com.myshelf.auth.adapter.out.token;
 
+import java.time.Clock;
 import java.util.Base64;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
@@ -16,6 +17,11 @@ import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 public class JwtConfig {
   // RFC 7518에 따라 32바이트 이상이어야 함
   private static final int MINIMUM_SECRET_BYTE_LENGTH = 32;
+
+  @Bean
+  public Clock clock() {
+    return Clock.systemUTC();
+  }
 
   @Bean
   public JwtEncoder jwtEncoder(JwtProperties properties) {
