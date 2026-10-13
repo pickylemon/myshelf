@@ -1,0 +1,17 @@
+.git
+.github
+.idea
+.vscode
+.gradle
+.claude
+
+build
+docs
+
+*.md
+*.iml
+*.log
+
+.env
+.env.*
+.DS_Store
