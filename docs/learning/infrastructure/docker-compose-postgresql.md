@@ -2,114 +2,108 @@
 
 ## 1. 학습 배경
 
-MyShelf는 초기 로컬 개발 환경에서 H2 인메모리 데이터베이스를 사용했다.
+MyShelf는 초기 로컬 개발 환경에서 H2 인메모리 데이터베이스를 사용했다. 이후 운영에서 사용할 PostgreSQL과 동일한 엔진에서 Flyway 마이그레이션 및 JPA 매핑을 검증하기 위해 로컬 DB를 PostgreSQL로 전환했다.
 
-이후 실제 PostgreSQL에서 Flyway 마이그레이션과 JPA 매핑을 검증하기 위해 Docker Compose 기반 로컬 DB 환경을 구성했다.
+이번 작업의 범위는 다음과 같다.
 
-이번 작업에서는 Spring Boot 애플리케이션 자체를 컨테이너화하지 않고, PostgreSQL만 Docker 컨테이너로 실행했다.
+- PostgreSQL을 Docker 컨테이너로 실행한다.
+- Docker Compose로 실행 설정을 파일에 선언하고 관리한다.
+- Named Volume으로 컨테이너와 데이터의 생명주기를 분리한다.
+- Spring Boot의 `local` 프로파일을 PostgreSQL에 연결한다.
+- Flyway 마이그레이션과 Hibernate 스키마 검증 결과를 확인한다.
 
-학습 목표는 다음과 같다.
+**Spring Boot 자체는 아직 컨테이너화하지 않는다.** IntelliJ에서 Spring Boot를 실행하고, PostgreSQL만 Docker로 실행한다.
 
-- Docker Desktop과 WSL 2의 관계 이해
-- Docker 이미지와 컨테이너의 차이
-- Docker Compose를 통한 서비스 실행
-- Named Volume과 데이터 영속성
-- 컨테이너 내부 명령 실행
-- PostgreSQL 접속 및 스키마 확인
-- Spring Boot와 컨테이너 DB 연결
+Windows와 macOS에서 같은 Compose 설정을 재사용할 수 있도록 구성했다. 실제 최초 실행과 검증은 Windows 환경에서 수행했으며, macOS에서의 실행은 추후 확인할 예정이다.
 
 ---
 
-## 2. Docker와 WSL 2
+## 2. Docker의 기본 구조
 
-### 2.1. WSL 2란?
+### 2.1. Docker CLI, Engine, Desktop
 
-WSL은 Windows Subsystem for Linux의 약자다.
-
-Windows에서 Linux 실행 환경을 사용할 수 있도록 하는 기술이다.
-
-WSL 2는 실제 Linux 커널을 경량 가상 머신에서 실행하는 방식이다.
-
-### 2.2. Docker Desktop과 WSL 2의 관계
-
-Docker의 Linux 컨테이너는 Linux 커널 기능을 활용한다.
-
-Windows에서 Docker Desktop의 WSL 2 백엔드를 사용하면 Linux 커널 기반 환경에서 컨테이너를 실행할 수 있다.
+| 구성 요소 | 역할 |
+|---|---|
+| Docker CLI | `docker` 명령을 입력하고 Engine에 요청하는 클라이언트 |
+| Docker Engine | 이미지, 컨테이너, 네트워크, 볼륨을 관리하는 실행 엔진 |
+| Docker Desktop | Windows/macOS에서 Docker Engine을 사용하기 위한 실행 환경 및 관리 도구 |
 
 ```text
-Windows
-│
-├── IntelliJ
-│   └── MyShelf Spring Boot
-│
-├── Docker Desktop
-│   └── WSL 2 기반 Linux 환경
-│       └── Docker Engine
-│           └── PostgreSQL 컨테이너
-│
-└── PowerShell
-    └── docker 명령 실행
+사용자 → Docker CLI → Docker API → Docker Engine
+                                     ├── Image
+                                     ├── Container
+                                     ├── Network
+                                     └── Volume
 ```
 
-Docker Desktop과 WSL 2는 동일한 기술이 아니다.
+CLI 설치와 Engine 실행은 별개다.
 
-- WSL 2: Windows에 Linux 실행 환경 제공
-- Docker Engine: 컨테이너 생성 및 실행 관리
-- Docker Desktop: Windows에서 Docker를 사용할 수 있도록 실행 환경과 관리 기능 제공
-
----
-
-## 3. Docker 이미지와 컨테이너
-
-### 3.1. 이미지
-
-Docker 이미지는 컨테이너를 생성하는 데 사용하는 읽기 전용 템플릿이다.
-
-애플리케이션 실행에 필요한 파일, 라이브러리, 설정 등의 내용을 포함한다.
-
-MyShelf에서는 PostgreSQL 공식 이미지를 사용했다.
-
-```yaml
-image: postgres:17
+```bash
+docker --version      # CLI 버전 확인
+docker compose version # Compose 버전 확인
+docker info           # Engine 연결 및 서버 정보 확인
+docker run --rm hello-world  # 실제 컨테이너 실행 확인
 ```
 
-이는 PostgreSQL 17 계열 이미지를 사용한다는 의미다.
+`docker --version`이 정상이어도 `docker info`의 `Server` 항목에서 연결 오류가 발생할 수 있다. 이 경우에는 Engine 실행 상태를 확인해야 한다.
 
-다만 `postgres:17`은 특정 패치 버전까지 고정하는 태그는 아니다.
+### 2.2. 이미지와 컨테이너
 
-### 3.2. 컨테이너
-
-컨테이너는 이미지를 기반으로 생성한 실행 인스턴스다.
+- **Image:** 컨테이너를 생성하기 위한 읽기 전용 기반. 실행에 필요한 파일 및 설정을 포함한다.
+- **Container:** 이미지를 기반으로 생성된 실행 인스턴스. 격리된 환경에서 프로세스를 실행한다.
 
 ```text
-PostgreSQL 이미지
-       │
+postgres:17 (Image)
        │ 컨테이너 생성
        ▼
-PostgreSQL 컨테이너
-       │
-       └── PostgreSQL 서버 실행
+PostgreSQL Container
+       └── PostgreSQL 서버 프로세스 실행
 ```
 
-이미지와 컨테이너의 관계는 클래스와 인스턴스에 비유할 수 있지만 완전히 동일한 개념은 아니다.
+이미지는 실행의 기반이고, 컨테이너는 실제 실행 환경이다. 하나의 이미지로 여러 컨테이너를 만들 수도 있다.
 
-이미지는 실행에 필요한 파일 시스템과 설정의 기반이고, 컨테이너는 이를 이용해 생성된 독립적인 실행 환경이다.
+### 2.3. Windows와 macOS의 실행 환경
+
+Linux 컨테이너는 Linux 커널 기능을 사용한다. Windows와 macOS의 Docker Desktop은 Linux 컨테이너 실행을 위한 Linux 환경을 제공한다.
+
+| 구분 | Windows | macOS |
+|---|---|---|
+| Linux 컨테이너 실행 | WSL 2 백엔드 등 활용 | Linux 가상 머신 활용 |
+| Docker CLI/Compose 명령 | 동일 | 동일 |
+| Named Volume 관리 | Docker Engine | Docker Engine |
+
+WSL 2(Windows Subsystem for Linux)는 Windows에서 실제 Linux 커널 기반 환경을 사용할 수 있게 해주는 기술이다. **macOS는 WSL 2를 사용하지 않는다.**
+
+Apple Silicon Mac은 ARM64, 일반적인 Intel/AMD PC는 AMD64 아키텍처를 사용한다. PostgreSQL 공식 이미지는 이들 아키텍처를 지원하므로 일반적으로 Compose에 `platform`을 강제로 지정할 필요가 없다. 다른 이미지를 사용할 때는 해당 아키텍처의 지원 여부를 확인해야 한다.
 
 ---
 
-## 4. Docker Compose란?
+## 3. Docker CLI와 Docker Compose
 
-Docker Compose는 여러 컨테이너 서비스의 실행 구성을 YAML 파일에 정의하고 관리할 수 있도록 하는 도구다.
+### 3.1. 둘의 관계
 
-MyShelf에서는 프로젝트 루트에 다음 파일을 작성했다.
+Docker Compose는 Docker CLI 플러그인으로 제공되며, Docker Engine을 이용해 컨테이너를 관리한다.
 
-```text
-compose.yaml
+`docker run`과 `docker compose up`은 같은 Engine을 사용하지만 **명령어의 옵션이나 동작이 완전히 일대일로 호환되는 것은 아니다.** Compose는 서비스, 프로젝트, 기본 네트워크, 설정 변경 시 컨테이너 재생성 등을 추가로 관리한다.
+
+| 구분 | `docker run` | `docker compose` |
+|---|---|---|
+| 실행 설정 | 실행할 때 옵션 전달 | YAML 파일에 선언 |
+| 관리 단위 | 개별 컨테이너 중심 | 서비스와 프로젝트 중심 |
+| 설정 재사용 | 명령어 또는 스크립트 관리 | Compose 파일 재사용 |
+| 버전 관리 | 별도 스크립트 등을 추적 | `compose.yaml`을 Git으로 추적 |
+
+Compose는 **여러 컨테이너를 함께 실행할 때뿐 아니라, 단일 컨테이너의 실행 설정을 반복적으로 재현할 때도 유용하다.**
+
+### 3.2. 같은 PostgreSQL을 실행하는 두 방식
+
+Docker CLI로 직접 실행한다면 다음처럼 옵션을 나열한다. 아래는 개념 비교를 위한 한 줄 예시다.
+
+```bash
+docker run -d --name myshelf-postgres -e POSTGRES_DB=myshelf -e POSTGRES_USER=myshelf -e POSTGRES_PASSWORD=myshelf -p 127.0.0.1:5432:5432 -v myshelf-pg-data:/var/lib/postgresql/data postgres:17
 ```
 
-현재 PostgreSQL 서비스 하나만 사용하지만, 향후 MyShelf 애플리케이션 컨테이너를 추가할 수 있다.
-
-### 4.1. MyShelf compose.yaml
+Compose에서는 설정을 파일로 분리한다.
 
 ```yaml
 services:
@@ -133,307 +127,230 @@ volumes:
   postgres-data:
 ```
 
-위 비밀번호는 로컬 개발용 예시다. 운영 환경에서는 별도의 비밀정보 관리가 필요하다.
+이것이 MyShelf에 적용한 `compose.yaml`이다. Compose에는 `healthcheck`도 포함되어 있으므로 위 `docker run` 예시와 설정이 완전히 동일한 것은 아니다.
 
-### 4.2. services
-
-```yaml
-services:
-  postgres:
-```
-
-`postgres`는 Compose 서비스 이름이다.
-
-이 이름은 이후 다음 명령에서 사용된다.
+파일을 작성한 이후에는 다음 명령으로 실행한다.
 
 ```bash
-docker compose exec postgres ...
+docker compose up -d
 ```
 
-서비스 이름과 컨테이너 이름은 구분해야 한다.
+**Compose의 가치는 명령어를 짧게 줄이는 데만 있지 않다.** 포트, 환경변수, 볼륨, 상태 확인 설정을 선언적으로 관리하고 Git에 기록할 수 있다는 점이 중요하다.
 
-Compose는 일반적으로 프로젝트명과 서비스명을 조합해 컨테이너 이름을 생성한다.
+### 3.3. compose.yaml의 주요 설정
 
-### 4.3. environment
+| 설정 | 의미 |
+|---|---|
+| `services.postgres` | Compose 서비스 이름. 명령어 및 컨테이너 간 통신에서 사용 |
+| `image: postgres:17` | PostgreSQL 17 계열 이미지 사용 |
+| `environment` | DB 최초 초기화에 사용할 환경변수 |
+| `ports` | 호스트 주소/포트를 컨테이너 포트와 연결 |
+| `volumes` | 데이터를 저장할 볼륨을 컨테이너에 마운트 |
+| `healthcheck` | PostgreSQL의 연결 준비 상태 확인 |
 
-```yaml
-environment:
-  POSTGRES_DB: myshelf
-  POSTGRES_USER: myshelf
-  POSTGRES_PASSWORD: myshelf
-```
+`POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`는 주로 **데이터 디렉터리의 최초 초기화 시점**에 사용된다. 기존 볼륨을 유지한 채 이 값을 바꿔도 DB 사용자나 비밀번호가 자동 변경되는 것은 아니다.
 
-PostgreSQL 이미지의 초기 데이터베이스 구성에 사용되는 환경변수다.
-
-- `POSTGRES_DB`: 초기 생성 데이터베이스
-- `POSTGRES_USER`: 초기 사용자
-- `POSTGRES_PASSWORD`: 해당 사용자의 비밀번호
-
-중요한 점은 이미 초기화된 데이터 볼륨이 존재할 때 이 값을 변경한다고 기존 데이터베이스가 자동으로 재설정되지는 않는다는 것이다.
-
-이 값들은 주로 초기 데이터베이스 생성 과정에서 사용된다.
-
-### 4.4. ports
-
-```yaml
-ports:
-  - "127.0.0.1:5432:5432"
-```
-
-호스트와 컨테이너 간 포트 매핑이다.
+`127.0.0.1:5432:5432`는 개발자 PC의 루프백 주소 5432번 포트를 컨테이너의 5432번 포트로 전달한다.
 
 ```text
-Windows
-127.0.0.1:5432
-      │
-      ▼
-PostgreSQL 컨테이너
-5432
+개발자 PC localhost:5432
+           │ 포트 매핑
+           ▼
+PostgreSQL 컨테이너 :5432
 ```
 
-형식은 다음과 같다.
+`pg_isready`는 PostgreSQL이 연결을 받을 준비가 되었는지 확인한다. **마이그레이션이나 애플리케이션 쿼리 성공까지 검증하는 것은 아니다.**
 
-```text
-호스트 IP:호스트 포트:컨테이너 포트
-```
-
-`127.0.0.1`로 바인딩했으므로 개발자 PC의 루프백 인터페이스를 통해 접근하도록 제한한다.
-
-### 4.5. healthcheck
-
-```yaml
-healthcheck:
-  test: ["CMD-SHELL", "pg_isready -U myshelf -d myshelf"]
-  interval: 5s
-  timeout: 5s
-  retries: 5
-```
-
-컨테이너의 PostgreSQL 서버가 연결 요청을 받을 준비가 되었는지 확인한다.
-
-`pg_isready`는 PostgreSQL의 연결 가능 상태를 확인하는 도구다.
-
-다만 이 검사가 성공했다고 해서 Flyway 마이그레이션이나 애플리케이션 쿼리까지 정상 동작한다는 의미는 아니다.
+현재 비밀번호는 로컬 전용 예시다. 운영 환경에서는 자격 증명을 별도 관리해야 한다. 또한 `postgres:17`은 메이저 버전 계열을 고정하지만 패치 버전까지 고정하지는 않는다.
 
 ---
 
-## 5. Named Volume이란?
+## 4. Named Volume과 데이터 영속성
 
-컨테이너의 파일 시스템에만 데이터를 보관하면 컨테이너를 제거할 때 데이터가 함께 사라질 수 있다.
+### 4.1. 왜 볼륨이 필요한가?
 
-PostgreSQL처럼 데이터를 지속적으로 보존해야 하는 서비스에서는 별도 저장 공간을 연결하는 것이 필요하다.
+컨테이너의 쓰기 가능 계층에만 데이터를 저장하면 컨테이너를 삭제할 때 해당 데이터도 사라질 수 있다. PostgreSQL 데이터는 컨테이너와 독립적으로 보존할 필요가 있으므로 볼륨에 저장한다.
 
-Docker Named Volume은 Docker가 생성하고 관리하는 데이터 저장 공간이다.
+```text
+PostgreSQL 컨테이너
+       │ 마운트
+       ▼
+Docker Named Volume (postgres-data)
+```
 
-### 5.1. 서비스 내부 volumes
+### 4.2. 서비스 내부 volumes와 최상위 volumes
 
 ```yaml
 services:
   postgres:
     volumes:
       - postgres-data:/var/lib/postgresql/data
-```
 
-이는 `postgres-data` 볼륨을 컨테이너 내부의 `/var/lib/postgresql/data` 경로에 마운트한다는 의미다.
-
-PostgreSQL 17 공식 이미지에서 이 경로는 데이터 디렉터리로 사용된다.
-
-### 5.2. 최상위 volumes
-
-```yaml
 volumes:
   postgres-data:
 ```
 
-이는 Compose 프로젝트에서 사용할 Named Volume을 선언하는 설정이다.
-
-두 설정은 역할이 다르다.
-
 | 위치 | 역할 |
 |---|---|
-| 서비스 내부 `volumes` | 볼륨을 컨테이너의 어느 경로에 연결할지 정의 |
-| 최상위 `volumes` | Compose가 사용할 Named Volume 선언 |
+| 서비스 내부 `volumes` | 어떤 볼륨을 컨테이너의 어디에 연결할지 지정 |
+| 최상위 `volumes` | Compose 프로젝트에서 사용할 Named Volume 선언 |
 
-### 5.3. Named Volume과 Bind Mount
+`/var/lib/postgresql/data`는 **현재 사용 중인 PostgreSQL 17 공식 이미지**의 데이터 저장 경로다. 이미지 버전을 바꿀 때는 해당 이미지의 데이터 디렉터리 규칙을 확인해야 한다.
 
-Named Volume:
-
-```yaml
-volumes:
-  - postgres-data:/var/lib/postgresql/data
-```
-
-Bind Mount:
+### 4.3. Named Volume과 Bind Mount
 
 ```yaml
-volumes:
-  - ./postgres-data:/var/lib/postgresql/data
+# Named Volume: Docker가 저장 경로 관리
+- postgres-data:/var/lib/postgresql/data
+
+# Bind Mount: 개발자가 호스트 경로 지정
+- ./postgres-data:/var/lib/postgresql/data
 ```
 
-Named Volume은 Docker가 관리하는 저장 공간을 사용한다.
+| 구분 | Named Volume | Bind Mount |
+|---|---|---|
+| 저장 경로 | Docker가 관리 | 개발자가 호스트 경로 지정 |
+| 호스트 파일에 직접 접근 | 상대적으로 불편 | 쉬움 |
+| 운영체제별 경로 고려 | 비교적 적음 | 필요할 수 있음 |
+| 컨테이너 삭제 후 데이터 재사용 | 가능 | 가능 |
 
-Bind Mount는 호스트 파일 시스템의 특정 경로를 컨테이너에 연결한다.
+둘 다 결국 디스크에 데이터를 저장한다. **Named Volume은 경로가 없는 저장소가 아니라 Docker에 경로 관리를 맡긴 저장소**다. MyShelf에서는 Windows/macOS 경로와 권한 차이를 줄이기 위해 Named Volume을 채택했다.
 
-MyShelf의 Windows 로컬 환경에서는 PostgreSQL 데이터 저장을 Docker가 관리하도록 Named Volume을 선택했다.
+### 4.4. 실제 데이터는 어디에 저장되는가?
 
-### 5.4. 볼륨 삭제 주의
+일반적인 Linux Docker Engine의 기본 로컬 볼륨은 보통 다음 위치에 저장된다.
+
+```text
+/var/lib/docker/volumes/<볼륨명>/_data
+```
+
+Windows/macOS의 Docker Desktop에서는 일반적으로 **Docker가 사용하는 Linux 환경의 가상 디스크 내부**에 데이터가 저장된다. 위 Linux 경로가 Windows의 `C:\...` 또는 macOS의 `/Users/...` 경로와 직접 일치한다는 뜻은 아니다.
+
+실제 생성된 볼륨을 확인할 때는 다음 명령을 사용한다.
 
 ```bash
-docker compose down
+docker volume ls
+docker volume inspect myshelf_postgres-data
 ```
 
-컨테이너와 관련 네트워크를 제거하지만 기본적으로 Named Volume은 유지한다.
+Compose가 관리하는 볼륨 이름은 보통 `<프로젝트명>_postgres-data` 형태이므로 실제 이름을 `docker volume ls`로 먼저 확인한다. `inspect`의 `Mountpoint`는 **Docker Engine 내부에서 인식하는 마운트 경로**다.
+
+PostgreSQL 데이터 파일을 직접 수정하지 말고 SQL 또는 데이터베이스 관리 도구로 조회·변경한다.
+
+### 4.5. 볼륨의 생명주기
 
 ```bash
-docker compose down -v
+docker compose down      # 컨테이너/네트워크 제거, Named Volume은 기본 유지
+docker compose down -v   # Compose의 Named Volume까지 제거
 ```
 
-Compose 프로젝트에 선언된 Named Volume까지 제거한다.
+볼륨이 유지되면 PostgreSQL 컨테이너를 재생성하더라도 저장된 데이터를 다시 사용할 수 있다. 다만 **Named Volume은 백업 기능 자체가 아니다.**
 
-따라서 데이터 보존이 필요하다면 `down -v` 사용에 주의해야 한다.
-
-Named Volume은 데이터 보존 수단이지 백업 자체를 의미하지는 않는다.
+또한 같은 `compose.yaml`을 다른 PC에서 실행해도 볼륨의 데이터가 자동으로 동기화되지는 않는다. Windows PC와 MacBook은 각자 별도의 Docker 데이터 저장 공간을 갖는다.
 
 ---
 
-## 6. Docker Compose 주요 명령어
+## 5. Docker Compose와 PostgreSQL 주요 명령어
 
-### 6.1. 컨테이너 실행
-
-```bash
-docker compose up -d
-```
-
-- `up`: 서비스 컨테이너 생성 및 실행
-- `-d`: Detached Mode, 백그라운드 실행
-
-### 6.2. 실행 상태 확인
+### 5.1. Compose 명령어
 
 ```bash
-docker compose ps
+docker compose up -d             # 서비스 생성 및 백그라운드 실행
+docker compose ps                # 컨테이너 상태 확인
+docker compose logs postgres     # PostgreSQL 로그 확인
+docker compose logs -f postgres  # 로그를 실시간으로 확인
+docker compose stop              # 서비스 중지
+docker compose start             # 중지된 서비스 재시작
+docker compose down              # 컨테이너 제거, 볼륨 기본 유지
 ```
 
-Compose 프로젝트의 컨테이너 상태를 확인한다.
+`up -d`의 `-d`는 **Detached Mode(백그라운드 실행)**이다.
 
-### 6.3. 로그 확인
+Compose는 기본적으로 작업 디렉터리와 그 상위 디렉터리에서 지원되는 설정 파일을 찾는다. `no configuration file provided: not found`가 출력되면 위치 또는 파일명을 확인한다. 파일 경로를 직접 지정할 수도 있다.
 
 ```bash
-docker compose logs postgres
+docker compose -f compose.yaml up -d
 ```
 
-PostgreSQL 서비스의 로그를 확인한다.
-
-실시간으로 확인하려면 다음과 같이 실행한다.
-
-```bash
-docker compose logs -f postgres
-```
-
-### 6.4. 컨테이너 내부 명령 실행
+### 5.2. exec: 실행 중인 컨테이너에서 명령 실행
 
 ```bash
 docker compose exec postgres psql -U myshelf -d myshelf
 ```
-
-명령을 두 부분으로 분리하면 이해하기 쉽다.
 
 ```text
 docker compose exec postgres
-└── postgres 서비스 컨테이너에서 명령 실행
+└── 실행 중인 postgres 서비스 컨테이너에서
 
 psql -U myshelf -d myshelf
-└── myshelf 사용자로 myshelf DB 접속
+└── psql 프로세스를 실행하여 DB에 접속
 ```
 
-| 요소 | 의미 |
+| 요소 | 뜻 |
 |---|---|
-| `docker compose` | Compose 프로젝트 대상으로 작업 |
-| `exec` | 실행 중인 컨테이너에서 명령 실행 |
-| `postgres` | 서비스 이름 |
-| `psql` | PostgreSQL 클라이언트 |
-| `-U myshelf` | 사용자 지정 |
-| `-d myshelf` | 데이터베이스 지정 |
+| `exec` | 이미 실행 중인 컨테이너에서 새로운 프로세스 실행 |
+| `postgres` | `compose.yaml`의 서비스 이름 |
+| `psql` | PostgreSQL 명령줄 클라이언트 |
+| `-U myshelf` | PostgreSQL 사용자 지정 |
+| `-d myshelf` | 접속할 데이터베이스 지정 |
 
-여기서 `-d`는 `docker compose up -d`의 `-d`와 의미가 다르다.
-
-명령어 옵션은 각각의 프로그램이 정의하므로 동일한 옵션 문자라도 의미가 다를 수 있다.
-
-### 6.5. exec와 run의 차이
-
-`exec`는 이미 실행 중인 컨테이너에서 명령을 실행한다.
-
-`docker compose run`은 서비스 설정을 기반으로 새로운 일회성 컨테이너를 생성해 명령을 실행한다.
-
-현재 PostgreSQL 컨테이너가 실행 중이므로 DB 접속에는 `exec`를 사용한다.
-
----
-
-## 7. psql을 이용한 PostgreSQL 확인
-
-`psql`은 PostgreSQL에 접속해 SQL 또는 관리 명령을 실행하는 클라이언트 프로그램이다.
-
-### 7.1. 접속
+`exec`는 단순히 '컨테이너에 들어간다'는 명령이 아니라 **컨테이너 안에서 지정한 프로그램을 실행하는 명령**이다. 예를 들어 다음 명령은 `psql`이 아니라 `ls`를 실행한다.
 
 ```bash
-docker compose exec postgres psql -U myshelf -d myshelf
+docker compose exec postgres ls
 ```
 
-접속 후 다음과 같은 프롬프트가 나타난다.
+### 5.3. exec와 run의 차이
 
-```text
-myshelf=#
+- `docker compose exec`: 이미 실행 중인 서비스 컨테이너 안에서 명령을 실행한다.
+- `docker compose run`: 서비스 설정을 바탕으로 **새로운 일회성 컨테이너**를 만들어 명령을 실행한다. 기본적으로 서비스의 포트는 게시하지 않는다.
+
+현재는 PostgreSQL 서버 컨테이너가 이미 실행 중이므로 DB 접속에 `exec`를 사용한다.
+
+`docker run` 역시 새 컨테이너를 생성하는 명령이지만, `docker compose run`은 Compose 서비스 설정을 이용한다는 차이가 있다.
+
+### 5.4. 옵션 `-d`는 프로그램마다 뜻이 다르다
+
+```bash
+docker compose up -d  # Detached Mode
+psql -d myshelf       # Database 선택
 ```
 
-### 7.2. 테이블 목록 확인
+옵션의 의미는 각 명령어가 정의하므로 같은 문자라도 역할이 다를 수 있다.
 
-```text
-\dt
-```
+### 5.5. psql 메타 명령어
 
-MyShelf에서는 다음 결과를 확인했다.
+`psql` 접속 후 다음 명령을 사용할 수 있다.
 
-```text
-books
-flyway_schema_history
-user_books
-users
-```
-
-### 7.3. 테이블 구조 확인
-
-```text
-\d users
-```
-
-`users` 테이블의 컬럼, 타입, 인덱스, 제약조건, 참조 관계 등을 확인한다.
-
-### 7.4. 주요 psql 명령어
-
-| 명령 | 역할 |
+| 명령 | 의미 |
 |---|---|
-| `\d` | 관계형 객체 목록 |
 | `\dt` | 테이블 목록 |
-| `\d users` | users 테이블 구조 |
-| `\d+ users` | users 테이블 추가 상세 정보 |
+| `\d` | 검색 경로에서 보이는 테이블 등 관계형 객체 목록 |
+| `\d users` | `users` 테이블의 컬럼·인덱스·제약조건·참조 관계 |
+| `\d+ users` | 추가 상세 정보 |
 | `\q` | psql 종료 |
 
-이 명령들은 일반 SQL이 아니라 `psql`에서 제공하는 메타 명령어다.
+이들은 SQL이 아니라 **psql이 제공하는 메타 명령어**다.
+
+컨테이너 내부에서 `psql -U myshelf -d myshelf`로 접속할 때 비밀번호 입력을 요구하지 않을 수 있다. `-h`를 지정하지 않으면 일반적으로 Unix Domain Socket을 사용하며, 실제 인증 여부는 PostgreSQL의 접속 인증 설정(`pg_hba.conf`)에 따른다. 따라서 비밀번호가 설정되지 않았다는 뜻은 아니다.
 
 ---
 
-## 8. Spring Boot와 PostgreSQL 연결
+## 6. Spring Boot와 PostgreSQL 연결
 
-이번 단계에서는 Spring Boot를 Windows에서 실행하고 PostgreSQL만 Docker 컨테이너로 실행한다.
+현재 MyShelf 구성은 다음과 같다.
 
 ```text
-IntelliJ
-└── Spring Boot
-    └── JDBC
-        └── localhost:5432
-            └── Docker PostgreSQL
+개발자 PC (Windows / macOS)
+├── IntelliJ
+│   └── MyShelf Spring Boot (local)
+│       └── JDBC: localhost:5432
+└── Docker Desktop
+    └── PostgreSQL 컨테이너
+        └── Named Volume
 ```
 
-`application-local.yaml`의 DataSource를 다음과 같이 변경했다.
+Spring Boot가 PC에서 실행되므로 `application-local.yaml`의 JDBC 주소는 `localhost`를 사용한다.
 
 ```yaml
 spring:
@@ -444,180 +361,135 @@ spring:
     password: myshelf
 ```
 
-Gradle에서는 PostgreSQL JDBC 드라이버와 Flyway PostgreSQL 모듈을 사용한다.
+`build.gradle`에서는 PostgreSQL JDBC 드라이버 및 Flyway PostgreSQL 모듈을 사용한다.
 
 ```groovy
 runtimeOnly 'org.postgresql:postgresql'
 runtimeOnly 'org.flywaydb:flyway-database-postgresql'
 ```
 
-현재는 Spring Boot가 호스트에서 실행되므로 JDBC 주소에 `localhost`를 사용한다.
+Flyway 활성화 및 `ddl-auto: validate`는 공통 설정에 유지했다. 기존 H2 기반 테스트는 이번 커밋 범위에서 전환하지 않았다.
 
-향후 Spring Boot까지 Compose의 컨테이너로 실행한다면 컨테이너 안의 `localhost`는 해당 컨테이너 자신을 의미한다.
+### localhost와 Compose 서비스 이름의 차이
 
-따라서 동일한 Compose 네트워크에서는 일반적으로 서비스 이름을 사용한다.
+Spring Boot까지 Compose 컨테이너로 실행하면 컨테이너 내부의 `localhost`는 **그 컨테이너 자신**을 뜻한다. 같은 Compose 네트워크에 있는 PostgreSQL로 접속할 때는 일반적으로 서비스 이름을 사용한다.
 
 ```text
-jdbc:postgresql://postgres:5432/myshelf
+호스트에서 실행하는 Spring Boot → jdbc:postgresql://localhost:5432/myshelf
+컨테이너에서 실행하는 Spring Boot → jdbc:postgresql://postgres:5432/myshelf
 ```
 
-즉, `localhost`와 `postgres`의 차이는 **어느 실행 환경에서 접속하는가**에 따라 결정된다.
+이 원리는 Windows/macOS 여부와 무관하다. 실제 운영 배포의 DB 주소 및 연결 방식은 추후 별도 결정한다.
 
 ---
 
-## 9. 실제 실행 검증
+## 7. MyShelf 실제 검증 결과
 
-### 9.1. Docker PostgreSQL 실행
+다음 결과는 **Windows 개발 환경에서 실제로 확인한 내용**이다.
 
-```bash
-docker compose up -d
-docker compose ps
-```
-
-PostgreSQL 컨테이너 실행 및 연결 가능 상태를 확인했다.
-
-### 9.2. Spring Boot 실행
-
-IntelliJ에서 `local` 프로파일로 실행했다.
+### 7.1. PostgreSQL 연결
 
 ```text
 The following 1 profile is active: "local"
-```
-
-### 9.3. JDBC 연결 확인
-
-```text
 HikariPool-1 - Added connection org.postgresql.jdbc.PgConnection
+Database: jdbc:postgresql://localhost:5432/myshelf (PostgreSQL 17.11)
 ```
 
-실제 PostgreSQL JDBC 연결이 생성되었다.
+Spring Boot의 `local` 프로파일로 실제 PostgreSQL에 연결했다.
 
-### 9.4. Flyway 마이그레이션
+### 7.2. Flyway 적용 및 Hibernate 검증
 
 ```text
-Database: jdbc:postgresql://localhost:5432/myshelf
 Successfully validated 1 migration
-Successfully applied 1 migration
+Migrating schema "public" to version "1 - init"
+Successfully applied 1 migration to schema "public", now at version v1
+Initialized JPA EntityManagerFactory for persistence unit 'default'
 ```
 
-Flyway가 기존 V1 마이그레이션을 PostgreSQL에 적용했다.
+기존 `V1__init.sql`이 PostgreSQL에 적용되었고, Hibernate도 `ddl-auto: validate` 설정에서 스키마 검증 오류 없이 초기화되었다.
 
-### 9.5. Hibernate 스키마 검증
+Flyway의 `validated`와 `applied`, Hibernate의 `validate`는 서로 다른 작업이다. 상세한 원리는 별도 `flyway-and-hibernate.md`에서 다룬다.
 
-`ddl-auto: validate` 설정에서 오류 없이 EntityManagerFactory가 초기화되었다.
+### 7.3. 데이터베이스 스키마 확인
 
-### 9.6. DB 스키마 확인
+```bash
+docker compose exec postgres psql -U myshelf -d myshelf
+```
 
-`psql`로 테이블 생성 상태와 UNIQUE 제약조건 이름을 확인했다.
+`\dt` 실행 결과:
 
 ```text
+books
+flyway_schema_history
+user_books
+users
+```
+
+Flyway 적용 이력:
+
+```sql
+SELECT installed_rank, version, description, success
+FROM flyway_schema_history;
+```
+
+```text
+installed_rank | version | description | success
+1              | 1       | init        | t
+```
+
+`\d users`에서 확인한 제약조건:
+
+```text
+"users_pkey" PRIMARY KEY, btree (id)
 "uk_users_email" UNIQUE CONSTRAINT, btree (email)
 ```
 
-따라서 Flyway가 의도한 스키마가 실제 PostgreSQL에 생성되었음을 확인했다.
+의도한 `uk_users_email` 제약조건이 실제 PostgreSQL에 존재한다는 점을 확인했다. 다만 제약조건 존재 확인과 중복 이메일 저장 시 애플리케이션 예외 변환 검증은 별개다.
 
 ---
 
-## 10. 학습 과정에서 발생한 문제
+## 8. 문제 해결 기록과 남은 과제
 
-### 10.1. Docker 명령은 인식되지만 컨테이너 실행 실패
+### 8.1. Windows 실습에서 발생한 문제
 
-Docker 설치 직후 다음과 같은 문제가 발생했다.
+| 문제 | 원인과 해결 |
+|---|---|
+| Docker 버전은 출력되지만 `docker run` 실패 | CLI 설치 후 Docker Engine이 실행되지 않아 Docker Desktop 실행 |
+| IntelliJ 터미널에서 `docker`를 찾지 못함 | 설치 이후 PATH 변경이 기존 IDE 프로세스에 반영되지 않아 IntelliJ 재시작 |
+| `no configuration file provided` | Compose 파일을 찾지 못하는 위치에서 실행. 프로젝트 루트에서 재실행 |
+| `No active profile set` | IntelliJ 실행 구성에서 `local` 프로파일이 전달되지 않아 설정 수정 후 재실행 |
 
-```text
-failed to connect to the docker API
-```
+이 내용은 실제 Windows 실습 사례다. 모든 환경에서 같은 문제가 발생한다는 의미는 아니다.
 
-Docker CLI는 설치되었으나 Docker Engine에 연결되지 않은 상태였다.
+### 8.2. macOS에서 추후 검증할 사항
 
-Docker Desktop을 실행하고 Engine이 시작된 이후 정상 동작했다.
+- Docker Desktop과 Docker Engine 정상 실행
+- Apple Silicon 환경의 PostgreSQL 이미지 아키텍처 지원
+- `docker compose up -d` 후 `docker compose ps` 상태 확인
+- 호스트 포트 5432 충돌 여부 확인
+- IntelliJ에서 `local` 프로파일로 Spring Boot 실행
+- Flyway 적용 및 PostgreSQL 스키마 확인
 
-**학습한 점**
+아직 macOS에서 동일 구성을 직접 검증하지 않았으므로 완료한 작업으로 기록하지 않는다.
 
-Docker CLI 설치 여부와 Docker Engine 실행 상태는 별개의 문제다.
+### 8.3. 다음 학습 과제
 
-### 10.2. IntelliJ 터미널에서 Docker 명령어 인식 실패
-
-Windows PowerShell에서는 `docker --version`이 정상 동작했지만 IntelliJ 터미널에서는 인식되지 않았다.
-
-IntelliJ를 재시작하자 정상 동작했다.
-
-**학습한 점**
-
-실행 중인 프로그램은 이전에 상속한 환경 변수를 계속 사용할 수 있으므로, 설치 후 PATH 변경사항이 반영되지 않을 수 있다.
-
-### 10.3. Compose 파일을 찾지 못하는 문제
-
-```text
-no configuration file provided: not found
-```
-
-Compose 파일이 없는 디렉터리에서 명령을 실행했을 때 발생했다.
-
-프로젝트 루트에서 실행하여 해결했다.
-
-**학습한 점**
-
-Compose는 기본적으로 현재 디렉터리와 상위 디렉터리 등을 기준으로 설정 파일을 탐색한다. 필요하다면 `-f` 옵션으로 명시할 수 있다.
-
-### 10.4. Spring Boot local 프로파일 미적용
-
-최초 실행 시 다음 로그가 나타났다.
-
-```text
-No active profile set, falling back to 1 default profile: "default"
-```
-
-IntelliJ 실행 설정에 `local` 프로파일이 정상 전달되도록 수정한 후 해결했다.
-
-**학습한 점**
-
-환경별 YAML 파일이 존재하더라도 해당 프로파일이 활성화되지 않으면 기대한 설정이 적용되지 않는다.
+- Dockerfile을 이용한 Spring Boot 이미지 빌드
+- Spring Boot와 PostgreSQL 컨테이너 네트워크 연결
+- Compose로 두 서비스 함께 실행
+- 실행 환경별 설정과 환경변수 관리
+- GitHub Actions 기반 CI/CD 구성
+- 별도 작업으로 Testcontainers PostgreSQL 통합 테스트 도입
 
 ---
 
-## 11. 남은 학습 과제
+## 9. 정리
 
-현재는 PostgreSQL만 Docker 컨테이너로 실행하는 단계까지 완료했다.
+이번 학습의 핵심은 다음과 같다.
 
-이후 학습할 내용은 다음과 같다.
+1. **애플리케이션과 DB는 별개의 프로세스다.** Spring Boot와 PostgreSQL은 JDBC로 통신하며, Compose 파일을 같은 저장소에서 관리한다고 해서 DB가 Spring Boot 프로세스에 종속되지는 않는다.
+2. **이미지, 컨테이너, 볼륨은 다른 개념이다.** 이미지는 실행 기반, 컨테이너는 실행 인스턴스, Named Volume은 Docker가 저장 위치를 관리하는 영속 저장 공간이다.
+3. **Compose는 단일 컨테이너에도 유용하다.** 긴 `docker run` 옵션을 파일로 선언하고, 실행 환경을 Git으로 관리하며 반복해서 재현할 수 있다.
+4. **운영체제가 달라도 핵심 원리는 같다.** Docker Desktop의 Linux 실행 환경은 Windows와 macOS에서 다르지만, Compose 설정과 주요 명령은 공통으로 활용할 수 있다.
 
-- Dockerfile 작성 및 Spring Boot 이미지 생성
-- Docker 이미지 빌드와 컨테이너 실행
-- Spring Boot와 PostgreSQL 컨테이너 간 네트워크
-- Compose로 두 서비스를 함께 실행
-- 환경변수 및 설정 분리
-- 운영 환경을 고려한 컨테이너 구성
-- CI/CD 파이프라인과 Docker 이미지 배포
-
-Testcontainers를 통한 DB 통합 테스트 구성도 별도로 진행할 예정이다.
-
----
-
-## 12. 정리
-
-이번 학습에서 가장 중요한 것은 Docker 명령어를 익히는 것보다 애플리케이션과 데이터베이스의 실행 환경을 구분하는 것이었다.
-
-Spring Boot와 PostgreSQL은 별개의 프로세스로 실행되며 JDBC로 통신한다.
-
-Compose 파일이 MyShelf 저장소에 존재한다고 해서 PostgreSQL이 Spring Boot 프로세스에 종속되는 것은 아니다.
-
-Docker Compose는 실행 환경을 정의하고 관리하는 역할을 한다.
-
-또한 Named Volume은 컨테이너의 생명주기와 데이터 저장 공간의 생명주기를 분리한다.
-
-최종적으로 현재 MyShelf의 로컬 개발 환경은 다음과 같다.
-
-```text
-Windows Developer PC
-│
-├── IntelliJ
-│   └── MyShelf Spring Boot
-│       └── local profile
-│
-└── Docker Desktop
-    └── PostgreSQL 17
-        └── Named Volume
-```
-
-이 구성을 기반으로 이후 Spring Boot 컨테이너화와 CI/CD 학습으로 확장할 예정이다.
+MyShelf에서는 Windows 환경에서 PostgreSQL 컨테이너 실행, Flyway 적용, Hibernate 검증까지 완료했다. 다음 단계는 Spring Boot 애플리케이션을 Docker 이미지로 만들고 PostgreSQL 컨테이너와 연결하는 것이다.
