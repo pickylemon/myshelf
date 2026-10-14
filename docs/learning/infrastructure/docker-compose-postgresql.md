@@ -2,6 +2,8 @@
 
 ## 1. 학습 배경
 
+> 본문의 구성과 설정 예시는 PostgreSQL 단독 실행 학습 단계 기준이다. 4.6절의 데이터 영속성 검증은 후속 통합 단계의 결과이며, 현재 Spring Boot와 PostgreSQL의 통합 실행 구성은 [통합 실행 문서](docker-compose-spring-boot-postgresql.md)를 참고한다.
+
 MyShelf는 초기 로컬 개발 환경에서 H2 인메모리 데이터베이스를 사용했다. 이후 운영에서 사용할 PostgreSQL과 동일한 엔진에서 Flyway 마이그레이션 및 JPA 매핑을 검증하기 위해 로컬 DB를 PostgreSQL로 전환했다.
 
 이번 작업의 범위는 다음과 같다.
@@ -127,7 +129,7 @@ volumes:
   postgres-data:
 ```
 
-이것이 MyShelf에 적용한 `compose.yaml`이다. Compose에는 `healthcheck`도 포함되어 있으므로 위 `docker run` 예시와 설정이 완전히 동일한 것은 아니다.
+PostgreSQL 단독 실행 단계에서 적용한  `compose.yaml` 구성이다. Compose에는 `healthcheck`도 포함되어 있으므로 위 `docker run` 예시와 설정이 완전히 동일한 것은 아니다.
 
 파일을 작성한 이후에는 다음 명령으로 실행한다.
 
@@ -248,6 +250,32 @@ docker compose down -v   # Compose의 Named Volume까지 제거
 
 또한 같은 `compose.yaml`을 다른 PC에서 실행해도 볼륨의 데이터가 자동으로 동기화되지는 않는다. Windows PC와 MacBook은 각자 별도의 Docker 데이터 저장 공간을 갖는다.
 
+### 4.6. 컨테이너 재생성 후 데이터 영속성 검증
+
+앞서 Named Volume의 데이터 보존 원리를 학습했으며, 이후 Spring Boot와 PostgreSQL을 Compose로 통합 실행하면서 실제 데이터 영속성을 검증했다.
+
+검증 순서는 다음과 같다.
+
+1. `POST /users`로 회원가입을 요청하여 HTTP 201 응답을 확인했다.
+2. Hibernate 로그에서 `users` 테이블에 대한 INSERT 실행을 확인했다.
+3. `docker compose down`으로 컨테이너와 Compose 네트워크를 제거했다.
+4. `docker compose up -d`로 서비스를 다시 생성했다.
+5. 동일 이메일로 회원가입을 요청하여 HTTP 409와 `DUPLICATE_EMAIL` 응답을 확인했다.
+6. 기존 회원으로 로그인하여 JWT Access Token 발급에 성공했다.
+
+```powershell
+docker compose down
+docker compose up -d
+```
+
+이번 검증으로 PostgreSQL 컨테이너를 제거하고 재생성해도 Named Volume에 저장된 회원 데이터가 유지된다는 것을 확인했다.
+
+단, `docker compose down -v`는 실행하지 않았으며, 볼륨 삭제 후 데이터 복구까지 검증한 것은 아니다.
+
+**Named Volume은 컨테이너의 생명주기와 데이터의 생명주기를 분리하지만, 데이터 백업이나 장애 복구를 자동으로 보장하지는 않는다.**
+
+관련 학습 문서: `docker-compose-spring-boot-postgresql.md`
+
 ---
 
 ## 5. Docker Compose와 PostgreSQL 주요 명령어
@@ -338,7 +366,7 @@ psql -d myshelf       # Database 선택
 
 ## 6. Spring Boot와 PostgreSQL 연결
 
-현재 MyShelf 구성은 다음과 같다.
+PostgreSQL 단독 실행 단계의 MyShelf 구성은 다음과 같다.
 
 ```text
 개발자 PC (Windows / macOS)

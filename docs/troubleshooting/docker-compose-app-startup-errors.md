@@ -160,7 +160,7 @@ Tomcat started on port 8080 (http)
 Started MyshelfApplication in 6.159 seconds
 ```
 
-따라서 **Spring Boot 시작 및 PostgreSQL 연결 실패는 해결**되었다. 다만 회원가입·로그인 API 호출까지 검증한 것은 아니다.
+따라서 **Spring Boot 시작 및 PostgreSQL 연결 실패는 해결**되었다. 당시에는 회원가입·로그인 API 호출까지 검증하지 않았으며, 이후 수행한 API 검증 결과는 6절에 정리했다.
 
 ---
 
@@ -191,3 +191,130 @@ docker compose ps -a
 **핵심 교훈은 `Started`가 애플리케이션의 정상 기동까지 보장하지 않는다는 점이다.** Compose 컨테이너의 상태와 애플리케이션 시작 완료 로그를 함께 확인해야 한다.
 
 관련 학습 문서: `docker-compose-spring-boot-postgresql.md`
+
+---
+
+## 6. 후속 검증 — 2026-10-14
+
+앞서 Compose 실행 오류를 해결한 뒤, Spring Boot와 PostgreSQL이 정상적으로 시작되는 것까지 확인했다.
+
+이후 HTTP 요청을 통해 실제 API 동작과 컨테이너 재생성 후 데이터 영속성을 추가로 검증했다.
+
+### 6.1 회원가입 및 PostgreSQL 저장 검증
+
+Docker Compose로 실행 중인 Spring Boot에 회원가입 요청을 전송했다.
+
+```http
+POST http://localhost:8080/users
+Content-Type: application/json
+
+{
+  "email": "docker-test@example.com",
+  "password": "Test1234!"
+}
+```
+
+응답:
+
+```text
+HTTP/1.1 201 Created
+```
+
+응답 본문으로 생성된 사용자 식별자(UUID)가 반환되었다.
+
+애플리케이션 로그에서도 Hibernate가 다음 SQL을 실행한 것을 확인했다.
+
+```sql
+select id
+from users
+where email = ?;
+
+insert into users (email, password, id)
+values (?, ?, ?);
+```
+
+따라서 Docker 환경에서 HTTP 요청 처리, PostgreSQL 조회 및 회원 데이터 저장이 정상적으로 이루어졌음을 확인했다.
+
+### 6.2 컨테이너 재생성 후 데이터 영속성 검증
+
+다음 명령으로 Compose 서비스를 종료하고 다시 실행했다.
+
+```powershell
+docker compose down
+docker compose up -d
+```
+
+재실행 후 동일한 이메일로 회원가입을 요청했다.
+
+응답:
+
+```http
+HTTP/1.1 409 Conflict
+Content-Type: application/problem+json
+```
+
+```json
+{
+  "detail": "가입된 이메일입니다",
+  "instance": "/users",
+  "status": 409,
+  "title": "User Error",
+  "code": "DUPLICATE_EMAIL"
+}
+```
+
+이는 컨테이너를 제거하고 다시 생성한 이후에도 기존 회원 데이터가 유지되었음을 보여준다.
+
+현재 PostgreSQL 서비스는 다음 Named Volume을 사용한다.
+
+```yaml
+volumes:
+  - postgres-data:/var/lib/postgresql/data
+```
+
+`docker compose down`은 기본적으로 Named Volume을 삭제하지 않으므로 데이터가 유지된다.
+
+반면 `docker compose down -v`는 Compose에서 관리하는 볼륨까지 제거할 수 있으므로 데이터 보존이 필요한 경우 주의해야 한다.
+
+### 6.3 로그인 및 JWT 발급 검증
+
+컨테이너 재생성 후 기존에 가입한 계정으로 로그인을 요청했다.
+
+```http
+POST http://localhost:8080/auth/login
+Content-Type: application/json
+
+{
+  "email": "docker-test@example.com",
+  "password": "Test1234!"
+}
+```
+
+로그인이 성공했고 JWT Access Token이 정상 발급되었다.
+
+이를 통해 다음 사항을 확인했다.
+
+- 재생성된 Spring Boot 컨테이너에서 기존 회원 조회 가능
+- PostgreSQL에 저장된 회원 정보 유지
+- 로그인 인증 처리 정상 동작
+- Docker 환경변수로 전달한 JWT Secret을 이용한 토큰 발급 정상 동작
+
+단, 이번 검증은 **JWT 발급까지 확인한 것**이며, 발급된 토큰을 이용한 보호 API 접근 및 토큰 검증까지 확인한 것은 아니다.
+
+### 6.4 검증 결과 요약
+
+| 검증 항목 | 결과 |
+|---|---|
+| Spring Boot 컨테이너 시작 | 성공 |
+| PostgreSQL 연결 | 성공 |
+| Flyway 마이그레이션 검증 | 성공 |
+| 회원가입 API | HTTP 201 |
+| PostgreSQL INSERT | 실행 확인 |
+| 컨테이너 재생성 후 데이터 유지 | 확인 |
+| 중복 이메일 처리 | HTTP 409 |
+| 기존 회원 로그인 | 성공 |
+| JWT Access Token 발급 | 성공 |
+
+이번 검증으로 **Docker Compose 기반 로컬 환경에서 Spring Boot와 PostgreSQL의 연동, 회원가입·로그인, 컨테이너 재생성 후 데이터 유지까지 정상 동작함을 확인했다.**
+
+다만 이는 로컬 통합 실행 검증이며, 운영 환경의 배포 안정성이나 장애 복구까지 검증한 것은 아니다.

@@ -12,7 +12,7 @@
 - Spring Profile: `local`
 - DB 스키마: Flyway V1 적용 상태 유지
 
-> **검증 범위:** 두 컨테이너 실행, Spring Boot 기동, PostgreSQL 연결, Flyway 검증, JPA 초기화까지 확인했다. **회원가입·로그인 API의 실제 요청/응답 검증은 아직 수행했다고 확인되지 않았다.** macOS 실행도 별도 확인이 필요하다.
+> **검증 범위:** 두 컨테이너 실행, Spring Boot 기동, PostgreSQL 연결, Flyway 검증, JPA 초기화, 회원가입·로그인 API 동작 및 컨테이너 재생성 후 데이터 유지까지 확인했다. 발급된 JWT를 이용한 보호 API 접근과 토큰 검증, macOS 실행은 검증하지 않았다.
 
 ---
 
@@ -120,6 +120,46 @@ Compose 기본 네트워크에서는 서비스 이름을 기반으로 서로를 
 IntelliJ의 로컬 실행에는 기존 `localhost:5432` 설정을 유지하고, 컨테이너 실행에서는 Compose의 `SPRING_DATASOURCE_URL` 환경변수가 Spring 설정을 덮어쓴다.
 
 따라서 **로컬 IDE 실행과 Docker 실행을 위해 동일한 YAML 파일을 번갈아 수정하지 않아도 된다.**
+
+### Spring Boot 설정 우선순위
+
+Spring Boot는 `application.yaml`, `application-local.yaml`, 운영체제 환경변수 등 여러 설정 소스에서 속성을 읽는다.
+
+동일한 속성이 여러 곳에 정의되어 있다면 우선순위가 높은 값이 적용된다.
+
+이번 구성에서 관련된 우선순위는 다음과 같다.
+
+```text
+운영체제 환경변수 (우선순위 높음)
+        ↑
+application-local.yaml
+        ↑
+application.yaml
+```
+
+IntelliJ에서 직접 실행할 때는 `application-local.yaml`에 정의한 다음 설정을 사용한다.
+
+```yaml
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/myshelf
+```
+
+Docker에서는 Compose가 애플리케이션 컨테이너에 환경변수를 전달한다.
+
+```yaml
+environment:
+  SPRING_PROFILES_ACTIVE: local
+  SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/myshelf
+```
+
+Spring Boot는 `SPRING_DATASOURCE_URL`을 `spring.datasource.url` 속성으로 인식한다.
+
+따라서 Docker에서도 `local` 프로필을 사용하지만, 실제 JDBC 주소는 환경변수에서 전달한 `postgres:5432`가 적용된다.
+
+**이는 YAML 파일을 수정하는 것이 아니라 애플리케이션 실행 시 최종 설정값을 결정하는 과정이다.**
+
+관련 공식 문서: [Spring Boot Externalized Configuration](https://docs.spring.io/spring-boot/reference/features/external-config.html)
 
 ---
 
@@ -248,6 +288,46 @@ Started MyshelfApplication in 6.159 seconds
 
 **주의:** `No migration necessary`는 Flyway가 기존 DB에 새로 적용할 마이그레이션이 없다는 의미다. 새 컨테이너를 실행할 때마다 테이블을 다시 만드는 것이 아니다. PostgreSQL 데이터를 보관하는 Named Volume 덕분에 기존 스키마를 유지할 수 있었다.
 
+### 후속 API 및 데이터 영속성 검증 — 2026-10-14
+
+앞서 컨테이너 시작과 데이터베이스 연결까지 확인한 이후, 실제 HTTP 요청을 통해 애플리케이션 동작을 검증했다.
+
+| 검증 항목 | 결과 |
+|---|---|
+| 회원가입 `POST /users` | HTTP 201 |
+| PostgreSQL 회원 데이터 저장 | Hibernate INSERT 로그 확인 |
+| 동일 이메일 회원가입 | HTTP 409 |
+| 중복 이메일 예외 | `DUPLICATE_EMAIL` |
+| 로그인 `POST /auth/login` | JWT Access Token 발급 성공 |
+| Compose 종료 및 재실행 | 성공 |
+| 기존 회원 데이터 유지 | 확인 |
+| 재실행 후 기존 회원 로그인 | 성공 |
+
+컨테이너 재생성 및 데이터 영속성은 다음 순서로 검증했다.
+
+```powershell
+docker compose down
+docker compose up -d
+```
+
+이후 동일 이메일로 회원가입을 요청했을 때 다음 응답을 받았다.
+
+```json
+{
+  "detail": "가입된 이메일입니다",
+  "instance": "/users",
+  "status": 409,
+  "title": "User Error",
+  "code": "DUPLICATE_EMAIL"
+}
+```
+
+기존 회원으로 로그인해 JWT 발급에도 성공했다.
+
+따라서 **Docker Compose 환경에서 Spring Boot와 PostgreSQL의 연동뿐 아니라 실제 회원가입·로그인 및 컨테이너 재생성 후 데이터 유지까지 확인했다.**
+
+단, 발급된 JWT를 이용한 보호 API 접근과 토큰 검증까지 확인한 것은 아니다.
+
 ---
 
 ## 8. 진행 중 확인한 문제와 학습 포인트
@@ -268,13 +348,16 @@ Started MyshelfApplication in 6.159 seconds
 
 ## 9. 다음 작업 및 남은 검증
 
-현재 완료한 것은 **인프라 관점의 애플리케이션 시작 및 DB 연결 검증**이다. 다음 작업은 다음과 같다.
+Docker Compose를 이용한 Spring Boot와 PostgreSQL 통합 실행, 회원가입·로그인 및 데이터 영속성 검증까지 완료했다.
 
-- 실제 회원가입·로그인 API 호출 및 응답 확인
-- 필요 시 PostgreSQL에 데이터가 정상 저장되는지 확인
-- `.env`에 사용한 JWT 서명키 교체 및 커밋 제외 여부 재확인
+DB 비밀번호와 JWT 서명키의 환경변수 관리 및 `.env`의 Git 추적 제외도 확인했다. 환경변수 변경 후 Docker Compose 실행과 API 동작, IntelliJ 직접 실행, 기존 회원 로그인 및 JWT 발급을 검증했다.
+
+이후 진행할 작업은 다음과 같다.
+
 - 현재 `compose.yaml` 수정사항 커밋
-- 이후 Testcontainers PostgreSQL 도입, GitHub Actions CI 구축
+- GitHub Actions 기반 CI 구축
+- 별도 작업으로 Testcontainers PostgreSQL 통합 테스트 도입
+- 운영 배포 단계에서 `prod` 프로필과 배포 환경 구성 검토
 
 관련 문서:
 
