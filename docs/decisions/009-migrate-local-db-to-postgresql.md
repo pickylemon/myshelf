@@ -5,6 +5,8 @@
 - 관련 기술: H2, PostgreSQL, Docker Compose, Flyway, Hibernate
 - 향후 검토: Testcontainers 기반 통합 테스트
 
+> 구현 기준 정정: PostgreSQL 전환 커밋 `8816602`에서 통합 테스트도 `local` 프로필의 PostgreSQL 설정을 사용했다. 아래 테스트 환경과 대안 설명은 이 구현에 맞게 정정했으며, 테스트 DB 분리와 Testcontainers 도입은 아직 별도 과제다.
+
 ## 1. Context
 
 MyShelf는 초기 개발 환경과 테스트 환경에서 H2 인메모리 데이터베이스를 사용했다.
@@ -82,9 +84,9 @@ spring:
 
 ### 2.3. 테스트 환경
 
-이번 변경에서는 테스트 환경을 즉시 전환하지 않는다.
+DB를 사용하는 통합 테스트는 `@ActiveProfiles({"local", "test"})`를 통해 `application-local.yaml`의 Datasource 설정을 사용한다. 따라서 로컬 DB를 PostgreSQL로 변경하면서 통합 테스트의 접속 대상도 PostgreSQL로 바뀌었다.
 
-기존 H2 기반 테스트는 유지하며, 이후 DB 통합 테스트를 Testcontainers PostgreSQL로 전환하는 방안을 별도 작업으로 검토한다.
+`application-test.yaml`에는 테스트 전용 JWT secret만 정의되어 있으며, H2 Datasource로 대체하는 설정은 없다. 현재 통합 테스트는 개발용 PostgreSQL DB를 공유하므로 테스트 DB 분리와 Testcontainers를 통한 DB 자동 준비는 별도 작업으로 검토한다.
 
 단위 테스트는 가능하면 실제 데이터베이스에 의존하지 않도록 구성한다.
 
@@ -130,7 +132,7 @@ spring:
 - 테스트 통과가 PostgreSQL에서의 동일한 동작을 보장하지 않음
 - 개발 환경과 테스트 환경에서 사용하는 DB 엔진이 다름
 
-이번 단계에서 일시적으로 채택하는 구성이다.
+검토한 대안으로 남긴다. 실제 구현에서는 통합 테스트도 `local` 프로필의 PostgreSQL 설정을 사용하므로 이 구성은 적용되지 않았다.
 
 ### 3.3. 로컬 및 통합 테스트 모두 PostgreSQL 사용
 
@@ -142,13 +144,13 @@ spring:
 
 **단점**
 
-- Docker 실행 환경 필요
+- 테스트 실행 시 PostgreSQL 서버와 접속 정보 준비 필요
 - H2보다 테스트 실행 비용이 증가할 수 있음
-- Testcontainers 관련 설정과 학습이 추가됨
+- Testcontainers로 DB를 자동 준비한다면 Docker 실행 환경과 추가 설정 및 학습이 필요함
 
-장기적으로 지향하는 구성이다.
+실제 구현에서는 로컬 개발과 DB 통합 테스트 모두 PostgreSQL을 사용한다.
 
-다만 이번 작업에서는 로컬 DB 전환에 집중하고 통합 테스트 전환은 분리한다.
+다만 개발용 DB와 테스트 DB를 분리하거나 Testcontainers로 DB의 생명주기를 관리하는 구성까지 적용한 것은 아니다. PostgreSQL 엔진 사용과 테스트 실행 환경의 격리는 구분한다.
 
 ---
 
@@ -182,9 +184,9 @@ Docker Compose를 통해 필요한 PostgreSQL 이미지와 실행 설정을 코�
 
 컨테이너 실행 상태, 포트 충돌, 볼륨 및 데이터 초기화 등을 관리해야 한다.
 
-**테스트 환경과의 일시적인 불일치**
+**개발 DB와 테스트 DB 공유**
 
-Testcontainers 도입 전까지 일부 통합 테스트는 H2를 사용하므로 엔진 간 차이가 남는다.
+통합 테스트도 개발용 PostgreSQL DB에 연결한다. 테스트 데이터가 개발 DB에 남을 수 있으며, 테스트 실행 전에 DB와 접속 정보를 별도로 준비해야 한다.
 
 ### 4.3. 유의 사항
 
@@ -251,8 +253,8 @@ Flyway에서 의도한 이름의 UNIQUE 제약조건이 실제 PostgreSQL에 존
 이번 결정 이후 진행할 작업은 다음과 같다.
 
 - Testcontainers PostgreSQL 기반 DB 통합 테스트 도입
-- 기존 H2 기반 통합 테스트의 단계적 전환
-- 전환 완료 후 불필요한 H2 관련 의존성 및 설정 정리
+- 개발용 PostgreSQL DB와 통합 테스트용 DB 분리
+- 불필요한 H2 관련 의존성 및 설정 정리
 - Spring Boot 애플리케이션 Docker 이미지 구성
 - 운영 DB의 실행 방식 및 백업 전략 결정
 
@@ -268,4 +270,4 @@ MyShelf 초기에는 개발 편의성과 빠른 영속성 계층 검증을 위�
 
 **이번 결정은 H2가 잘못된 선택이었다는 의미가 아니라, 프로젝트의 검증 요구가 달라짐에 따라 데이터베이스 실행 환경을 변경한 것이다.**
 
-최종적으로 개발 및 통합 테스트에서 실제 PostgreSQL의 동작을 검증할 수 있는 환경을 지향한다.
+개발 및 DB 통합 테스트는 이미 PostgreSQL을 사용한다. 이후에는 테스트 DB 분리와 실행 환경 자동 준비를 통해 테스트의 독립성과 재현성을 높인다.

@@ -396,7 +396,7 @@ runtimeOnly 'org.postgresql:postgresql'
 runtimeOnly 'org.flywaydb:flyway-database-postgresql'
 ```
 
-Flyway 활성화 및 `ddl-auto: validate`는 공통 설정에 유지했다. 기존 H2 기반 테스트는 이번 커밋 범위에서 전환하지 않았다.
+Flyway 활성화 및 `ddl-auto: validate`는 공통 설정에 유지했다. DB 통합 테스트도 `@ActiveProfiles({"local", "test"})`로 `application-local.yaml`을 사용하므로 PostgreSQL 전환 시 테스트의 접속 대상도 함께 바뀌었다. `application-test.yaml`에는 JWT 테스트 키만 있으며 H2 Datasource 설정은 없다. 테스트 전용 DB 분리와 Testcontainers 도입은 별도 과제다.
 
 ### localhost와 Compose 서비스 이름의 차이
 
