@@ -3,7 +3,7 @@ spring:
     url: jdbc:postgresql://localhost:5432/myshelf
     driver-class-name: org.postgresql.Driver
     username: myshelf
-    password: myshelf123
+    password: ${DB_PASSWORD}
 
   jpa:
     properties:
