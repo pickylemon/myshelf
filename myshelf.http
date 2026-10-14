@@ -1,0 +1,19 @@
+@baseUrl = http://localhost:8080
+
+### 회원가입
+POST {{baseUrl}}/users
+Content-Type: application/json
+
+{
+  "email": "docker-test@example.com",
+  "password": "Test1234!"
+}
+
+### 로그인
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "docker-test@example.com",
+  "password": "Test1234!"
+}
