@@ -19,12 +19,11 @@ import tools.jackson.databind.ObjectMapper;
  * signUp 기능이 실제 애플리케이션의 Security, Controller, Service, Persistence 및 Flyway로 구성된 DB를 함께 통과해 동작하는지
  * 검증한다.
  *
- * <p>local profile을 활성화하여 일반 API용 SecurityFilterChain과 H2 Console 전용 SecurityFilterChain이 함께 존재하는
- * 환경에서도 POST /users가 올바른 Security 설정을 통해 처리되는지 확인한다.
+ * <p>test 프로필의 PostgreSQL DB를 사용하여 POST /users가 일반 API용 Security 설정을 통해 처리되는지 확인한다.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
-@ActiveProfiles({"local", "test"})
+@ActiveProfiles("test")
 class UserSignUpIntegrationTest {
 
   @Autowired MockMvc mockMvc;

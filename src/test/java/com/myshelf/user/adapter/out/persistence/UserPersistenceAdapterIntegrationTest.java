@@ -13,7 +13,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * 실제 DB unique constraint 위반이 UserException(DUPLICATE_EMAIL)으로 변환되는지 검증한다.
+ * test 프로필의 PostgreSQL DB에서 unique constraint 위반이 UserException(DUPLICATE_EMAIL)으로 변환되는지 검증한다.
  *
  * <p>existsByEmail 사전 검사를 우회하기 위해 UserPersistenceAdapter를 직접 호출한다. @DataJpaTest는 테스트 메서드 전체를 트랜잭션으로
  * 감싸므로 Repository의 save()가 해당 트랜잭션에 참여하게 되고, flush 및 constraint violation 발생 시점이 실제 운영 흐름과 달라질 수
@@ -23,7 +23,7 @@ import org.springframework.test.context.ActiveProfiles;
  * 위해 @SpringBootTest를 사용한다.
  */
 @SpringBootTest
-@ActiveProfiles({"local", "test"})
+@ActiveProfiles("test")
 class UserPersistenceAdapterIntegrationTest {
 
   @Autowired UserPersistenceAdapter userPersistenceAdapter;

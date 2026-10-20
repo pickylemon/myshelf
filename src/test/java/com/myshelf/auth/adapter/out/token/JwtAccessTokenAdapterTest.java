@@ -24,8 +24,7 @@ class JwtAccessTokenAdapterTest {
 
   // 테스트 전용 32byte(256bit) 고정 secret. 운영 secret과 무관하다.
   private static final String TEST_SECRET = "3GaoMboqMPEL00bl2eo4f7ZwIm0bPFhaAz7dvBAX3uo=";
-  private static final Duration ACCESS_TOKEN_EXPIRATION =
-          Duration.ofMinutes(30);
+  private static final Duration ACCESS_TOKEN_EXPIRATION = Duration.ofMinutes(30);
 
   private static final Instant FIXED_NOW = Instant.parse("2026-01-01T00:00:00Z");
 

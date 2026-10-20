@@ -1,5 +1,7 @@
 # Hibernate ddl-auto로 인해 Flyway UNIQUE 제약조건 이름이 달라진 문제
 
+> 이 문서는 H2 인메모리 DB를 사용하던 당시의 장애와 해결 과정이다. 현재 DB 통합 테스트는 PostgreSQL을 사용하며, 아래 H2 오류 로그와 설정은 과거 환경의 기록이다.
+
 ## 문제
 
 전체 테스트 실행 중 다음 Persistence Adapter 통합 테스트가 실패했다.
@@ -108,7 +110,7 @@ Hibernate
 → Entity와 실제 DB schema가 호환되는지 검증
 ```
 
-로컬 환경은 H2 인메모리 DB를 사용한다.
+당시 로컬 환경은 H2 인메모리 DB를 사용했다.
 
 ```yaml
 spring:
@@ -116,9 +118,11 @@ spring:
     url: jdbc:h2:mem:myshelf
 ```
 
-인메모리 DB는 새로운 애플리케이션 실행에서 다시 생성되므로 새 DB에 Flyway migration이 다시 적용된다.
+당시 인메모리 DB는 새로운 애플리케이션 실행에서 다시 생성되므로 새 DB에 Flyway migration이 다시 적용되었다.
 
-따라서 매번 깨끗한 DB를 사용하기 위해 Hibernate의 `create-drop`에 의존할 필요도 없다.
+따라서 당시에는 매번 깨끗한 DB를 사용하기 위해 Hibernate의 `create-drop`에 의존할 필요도 없었다.
+
+현재 통합 테스트는 `test` 프로필만 사용하여 `application-test.yaml`의 PostgreSQL DB `myshelf_test`에 연결한다. 개발용 DB와는 분리되어 있지만 테스트 재실행 시 자동 초기화되지는 않으며, Flyway도 기존 적용 이력을 유지한다. 테스트 간 데이터 정리는 별도로 구성해야 한다.
 
 ## Persistence Adapter의 중복 예외 변환이 필요한 이유
 

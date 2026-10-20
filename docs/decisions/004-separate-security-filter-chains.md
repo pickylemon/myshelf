@@ -1,5 +1,7 @@
 # 004. 일반 API와 Local H2 Console의 SecurityFilterChain을 분리한다
 
+> 이 문서는 H2 Console을 사용하던 당시의 설계 결정과 구현을 보존한 기록이다. PostgreSQL 전환 이후 커밋 `a3fddb0`에서 `LocalSecurityConfig`를 제거했으며, 현재는 `SecurityConfig`의 단일 `SecurityFilterChain`을 사용한다. DB 전환 배경은 [ADR 009](009-migrate-local-db-to-postgresql.md)를 참고한다.
+
 ## Context
 
 MyShelf에는 서로 다른 보안 요구사항이 있다.

@@ -3,7 +3,6 @@ package com.myshelf.auth.adapter.out.security;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -22,10 +21,7 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 
-/**
- * Spring Security Provider를 통한 인증 결과와
- * 사용자 미존재 시 timing side-channel 완화 동작을 검증한다.
- */
+/** Spring Security Provider를 통한 인증 결과와 사용자 미존재 시 timing side-channel 완화 동작을 검증한다. */
 @ExtendWith(MockitoExtension.class)
 class SpringSecurityAuthenticationAdapterTest {
   private static final String EMAIL = "user@example.com";
@@ -61,20 +57,16 @@ class SpringSecurityAuthenticationAdapterTest {
 
   @Test
   void wrongPasswordReturnsInvalidCredentials() {
-    AuthUserPrincipal principal =
-            new AuthUserPrincipal(UUID.randomUUID(), EMAIL, ENCODED_PASSWORD);
+    AuthUserPrincipal principal = new AuthUserPrincipal(UUID.randomUUID(), EMAIL, ENCODED_PASSWORD);
 
-    when(userDetailsService.loadUserByUsername(EMAIL))
-            .thenReturn(principal);
+    when(userDetailsService.loadUserByUsername(EMAIL)).thenReturn(principal);
 
     // Mockito 기본값은 false지만, 비밀번호 불일치 시나리오를 명시한다.
-    when(passwordEncoder.matches(PASSWORD, principal.getPassword()))
-            .thenReturn(false);
+    when(passwordEncoder.matches(PASSWORD, principal.getPassword())).thenReturn(false);
 
     assertAuthenticationFailsWithInvalidCredentials();
 
-    verify(passwordEncoder)
-            .matches(PASSWORD, principal.getPassword());
+    verify(passwordEncoder).matches(PASSWORD, principal.getPassword());
   }
 
   @Test

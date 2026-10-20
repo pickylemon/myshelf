@@ -1,3 +1,10 @@
 jwt:
   # 테스트 전용 32byte(256bit) Base64 secret. 운영 secret과 무관하며 JWT_SECRET 환경변수를 대체한다.
   secret: 3GaoMboqMPEL00bl2eo4f7ZwIm0bPFhaAz7dvBAX3uo=
+
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/myshelf_test
+    username: myshelf
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
