@@ -99,7 +99,7 @@ DB_PASSWORD=<PostgreSQL 비밀번호>
 
 JWT 서명키는 **Base64 디코딩 결과가 최소 32바이트**여야 합니다.
 
-출력된 값을 `JWT_SECRET`에 설정합니다. `.env`는 Git에 포함하지 않습니다.
+`.env`는 Git에 포함하지 않습니다.
 
 IntelliJ에서 Spring Boot를 직접 실행하는 경우 Run Configuration에서 다음을 설정합니다.
 

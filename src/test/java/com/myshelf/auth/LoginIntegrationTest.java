@@ -18,13 +18,10 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 import tools.jackson.databind.ObjectMapper;
 
-/**
- * 여러 SecurityFilterChain이 공존하는 환경에서 로그인 흐름과
- * 인증 실패 응답의 비노출 특성을 검증한다.
- */
-@SpringBootTest(properties = "spring.h2.console.enabled=true")
+/** test 프로필의 PostgreSQL DB에서 로그인 흐름과 인증 실패 응답의 비노출 특성을 검증한다. */
+@SpringBootTest
 @AutoConfigureMockMvc
-@ActiveProfiles({"local", "test"})
+@ActiveProfiles("test")
 class LoginIntegrationTest {
 
   @Autowired MockMvc mockMvc;
@@ -94,7 +91,7 @@ class LoginIntegrationTest {
 
     // then
     assertThat(objectMapper.readTree(nonExistentEmailResponse))
-            .isEqualTo(objectMapper.readTree(wrongPasswordResponse));
+        .isEqualTo(objectMapper.readTree(wrongPasswordResponse));
   }
 
   // 로그인 API의 JSON 계약만 표현하고 프로덕션 LoginRequest DTO에는 의존하지 않는다.

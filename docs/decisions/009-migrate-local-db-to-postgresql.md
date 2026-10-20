@@ -5,7 +5,7 @@
 - 관련 기술: H2, PostgreSQL, Docker Compose, Flyway, Hibernate
 - 향후 검토: Testcontainers 기반 통합 테스트
 
-> 구현 기준 정정: PostgreSQL 전환 커밋 `8816602`에서 통합 테스트도 `local` 프로필의 PostgreSQL 설정을 사용했다. 아래 테스트 환경과 대안 설명은 이 구현에 맞게 정정했으며, 테스트 DB 분리와 Testcontainers 도입은 아직 별도 과제다.
+> 구현 기준 정정: PostgreSQL 전환 커밋 `8816602`에서 통합 테스트도 `local` 프로필의 PostgreSQL 설정을 사용했다. 아래는 당시 구현에 맞게 정정한 기록이다. 이후 테스트 DB를 `myshelf_test`로 분리하고 `test` 프로필만 사용하도록 변경했으며, 미사용 H2 설정과 의존성도 제거했다. Testcontainers 도입은 아직 별도 과제다.
 
 ## 1. Context
 
@@ -84,9 +84,9 @@ spring:
 
 ### 2.3. 테스트 환경
 
-DB를 사용하는 통합 테스트는 `@ActiveProfiles({"local", "test"})`를 통해 `application-local.yaml`의 Datasource 설정을 사용한다. 따라서 로컬 DB를 PostgreSQL로 변경하면서 통합 테스트의 접속 대상도 PostgreSQL로 바뀌었다.
+전환 당시 DB를 사용하는 통합 테스트는 `@ActiveProfiles({"local", "test"})`를 통해 `application-local.yaml`의 Datasource 설정을 사용했다. 따라서 로컬 DB를 PostgreSQL로 변경하면서 통합 테스트의 접속 대상도 PostgreSQL로 바뀌었다.
 
-`application-test.yaml`에는 테스트 전용 JWT secret만 정의되어 있으며, H2 Datasource로 대체하는 설정은 없다. 현재 통합 테스트는 개발용 PostgreSQL DB를 공유하므로 테스트 DB 분리와 Testcontainers를 통한 DB 자동 준비는 별도 작업으로 검토한다.
+당시 `application-test.yaml`에는 테스트 전용 JWT secret만 정의되어 있었으며, H2 Datasource로 대체하는 설정은 없었다. 통합 테스트는 개발용 PostgreSQL DB를 공유했고, 테스트 DB 분리와 Testcontainers를 통한 DB 자동 준비는 후속 작업으로 남겼다.
 
 단위 테스트는 가능하면 실제 데이터베이스에 의존하지 않도록 구성한다.
 
@@ -150,7 +150,7 @@ DB를 사용하는 통합 테스트는 `@ActiveProfiles({"local", "test"})`를 �
 
 실제 구현에서는 로컬 개발과 DB 통합 테스트 모두 PostgreSQL을 사용한다.
 
-다만 개발용 DB와 테스트 DB를 분리하거나 Testcontainers로 DB의 생명주기를 관리하는 구성까지 적용한 것은 아니다. PostgreSQL 엔진 사용과 테스트 실행 환경의 격리는 구분한다.
+다만 당시에는 개발용 DB와 테스트 DB를 분리하거나 Testcontainers로 DB의 생명주기를 관리하는 구성까지 적용한 것은 아니었다. PostgreSQL 엔진 사용과 테스트 실행 환경의 격리는 구분한다.
 
 ---
 
@@ -186,7 +186,7 @@ Docker Compose를 통해 필요한 PostgreSQL 이미지와 실행 설정을 코�
 
 **개발 DB와 테스트 DB 공유**
 
-통합 테스트도 개발용 PostgreSQL DB에 연결한다. 테스트 데이터가 개발 DB에 남을 수 있으며, 테스트 실행 전에 DB와 접속 정보를 별도로 준비해야 한다.
+전환 당시 통합 테스트도 개발용 PostgreSQL DB에 연결하여 테스트 데이터가 개발 DB에 남을 수 있었다. 이후 `myshelf_test`로 DB를 분리했지만, 테스트 실행 전에 DB와 접속 정보를 별도로 준비해야 한다는 점은 동일하다.
 
 ### 4.3. 유의 사항
 
@@ -250,12 +250,12 @@ Flyway에서 의도한 이름의 UNIQUE 제약조건이 실제 PostgreSQL에 존
 
 ## 6. Follow-up
 
-이번 결정 이후 진행할 작업은 다음과 같다.
+당시 후속 작업과 현재 진행 상태는 다음과 같다.
 
 - Testcontainers PostgreSQL 기반 DB 통합 테스트 도입
-- 개발용 PostgreSQL DB와 통합 테스트용 DB 분리
-- 불필요한 H2 관련 의존성 및 설정 정리
-- Spring Boot 애플리케이션 Docker 이미지 구성
+- 개발용 PostgreSQL DB와 통합 테스트용 DB 분리 — 완료 (`myshelf` / `myshelf_test`)
+- 불필요한 H2 관련 의존성 및 설정 정리 — 완료
+- Spring Boot 애플리케이션 Docker 이미지 구성 — 완료
 - 운영 DB의 실행 방식 및 백업 전략 결정
 
 이 작업들은 별도 변경 단위로 진행한다.
@@ -270,4 +270,4 @@ MyShelf 초기에는 개발 편의성과 빠른 영속성 계층 검증을 위�
 
 **이번 결정은 H2가 잘못된 선택이었다는 의미가 아니라, 프로젝트의 검증 요구가 달라짐에 따라 데이터베이스 실행 환경을 변경한 것이다.**
 
-개발 및 DB 통합 테스트는 이미 PostgreSQL을 사용한다. 이후에는 테스트 DB 분리와 실행 환경 자동 준비를 통해 테스트의 독립성과 재현성을 높인다.
+개발 및 DB 통합 테스트는 PostgreSQL을 사용하며, 현재는 개발용 `myshelf`와 테스트용 `myshelf_test` DB로 분리했다. 이후에는 실행 환경 자동 준비와 테스트 간 데이터 정리를 통해 테스트의 독립성과 재현성을 높인다.

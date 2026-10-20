@@ -2,6 +2,8 @@
 
 ## 1. 증상
 
+> 아래는 개발용 PostgreSQL DB를 통합 테스트에서도 사용하던 당시의 기록이다. 현재는 `test` 프로필만 사용하고 `application-test.yaml`의 `myshelf_test` DB에 연결한다. Gradle 테스트 실행 환경에 `DB_PASSWORD`를 전달해야 한다는 점은 동일하다.
+
 IntelliJ에서 Gradle `test` 태스크를 실행했을 때 전체 32개 테스트 중 7개가 실패했다.
 
 ```text

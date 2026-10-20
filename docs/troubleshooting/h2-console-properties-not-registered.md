@@ -68,9 +68,9 @@ jwt:
 ## 현재 구성
 
 - PostgreSQL 전환 이후 커밋 `a3fddb0`에서 H2 Console 전용 `LocalSecurityConfig`를 제거했다. 현재는 일반 API용 `SecurityFilterChain`만 존재한다.
-- `LoginIntegrationTest`는 여전히 `local`, `test` 프로필을 사용한다. 현재 `local` 프로필의 역할은 PostgreSQL 접속 정보 등 로컬 설정을 제공하는 것이며, H2 Console 전용 보안 설정을 활성화하는 것이 아니다.
-- `application-test.yaml`은 JWT 테스트 키만 제공한다. DB 접속에는 `application-local.yaml`의 PostgreSQL 설정과 올바른 `DB_PASSWORD`가 필요하다. 관련 오류는 [Gradle 테스트 비밀번호 전달 문제](gradle-test-db-password-not-propagated.md)에 정리했다.
-- 테스트의 `spring.h2.console.enabled=true`와 H2 관련 의존성은 아직 남아 있지만, 테스트 DB를 H2로 바꾸지는 않는다. 미사용 설정 및 의존성 정리는 별도 작업이다.
+- `LoginIntegrationTest`를 포함한 DB 통합 테스트는 `test` 프로필만 사용한다. `application-test.yaml`에서 테스트용 PostgreSQL DB `myshelf_test`와 JWT 테스트 키를 설정한다.
+- DB 접속에는 올바른 `DB_PASSWORD`가 필요하다. 관련 오류는 [Gradle 테스트 비밀번호 전달 문제](gradle-test-db-password-not-propagated.md)에 정리했다.
+- 테스트의 `spring.h2.console.enabled=true`와 H2 DB 및 H2 Console 의존성을 제거했다. 위 활성화 설정은 당시 해결 과정의 기록이며 현재 실행에 필요하지 않다.
 
 ## 정리
 

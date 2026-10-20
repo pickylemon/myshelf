@@ -166,4 +166,4 @@ DB
 
 당시에는 실제 H2를 사용하는 Integration Test로 이 방식을 검증했다. 위 오류 메시지와 대응은 H2 환경에서의 기록이다.
 
-현재 `UserPersistenceAdapterIntegrationTest`는 `local`, `test` 프로필을 활성화하여 PostgreSQL에서 중복 이메일 예외 변환을 검증한다. H2에서의 예외 형식을 현재 테스트가 검증하는 것은 아니다. DB 엔진이나 Hibernate 버전 변경 후 해당 테스트가 실패하면 constraint 판별 로직을 다시 확인한다.
+현재 `UserPersistenceAdapterIntegrationTest`는 `test` 프로필만 활성화하여 테스트용 PostgreSQL DB `myshelf_test`에서 중복 이메일 예외 변환을 검증한다. H2에서의 예외 형식을 현재 테스트가 검증하는 것은 아니다. DB 엔진이나 Hibernate 버전 변경 후 해당 테스트가 실패하면 constraint 판별 로직을 다시 확인한다.

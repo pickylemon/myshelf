@@ -122,7 +122,7 @@ spring:
 
 따라서 당시에는 매번 깨끗한 DB를 사용하기 위해 Hibernate의 `create-drop`에 의존할 필요도 없었다.
 
-현재 통합 테스트는 `application-local.yaml`의 PostgreSQL DB에 연결한다. 이 DB는 테스트 재실행 시 자동 초기화되지 않으며, Flyway도 기존 적용 이력을 유지한다. 테스트 데이터 격리는 별도로 구성해야 한다.
+현재 통합 테스트는 `test` 프로필만 사용하여 `application-test.yaml`의 PostgreSQL DB `myshelf_test`에 연결한다. 개발용 DB와는 분리되어 있지만 테스트 재실행 시 자동 초기화되지는 않으며, Flyway도 기존 적용 이력을 유지한다. 테스트 간 데이터 정리는 별도로 구성해야 한다.
 
 ## Persistence Adapter의 중복 예외 변환이 필요한 이유
 
