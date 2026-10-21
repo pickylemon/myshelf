@@ -40,3 +40,6 @@ logs/
 
 CLAUDE.md
 AGENTS.md
+
+### ETC
+docker.verify.yaml
