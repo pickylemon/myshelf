@@ -42,4 +42,4 @@ CLAUDE.md
 AGENTS.md
 
 ### ETC
-docker.verify.yaml
+compose.verify.yaml
