@@ -16,7 +16,9 @@ MyShelf는 초기 로컬 개발 환경에서 H2 인메모리 데이터베이스�
 
 **Spring Boot 자체는 아직 컨테이너화하지 않는다.** IntelliJ에서 Spring Boot를 실행하고, PostgreSQL만 Docker로 실행한다.
 
-Windows와 macOS에서 같은 Compose 설정을 재사용할 수 있도록 구성했다. 실제 최초 실행과 검증은 Windows 환경에서 수행했으며, macOS에서의 실행은 추후 확인할 예정이다.
+Windows와 macOS에서 같은 Compose 설정을 재사용할 수 있도록 구성했다. 최초 PostgreSQL 실행과 Flyway 및 Hibernate 검증은 Windows 환경에서 수행했다.
+
+이후 macOS에서도 Docker Compose를 이용한 PostgreSQL 실행을 확인했고, 신규 데이터 볼륨에서 개발 DB(`myshelf`)와 테스트 DB(`myshelf_test`)가 자동 생성되는 기능을 검증했다.
 
 ---
 
@@ -276,6 +278,80 @@ docker compose up -d
 
 관련 학습 문서: `docker-compose-spring-boot-postgresql.md`
 
+### 4.7. PostgreSQL 최초 초기화 시 테스트 DB 자동 생성 (후속 변경)
+
+개발용 데이터베이스와 통합 테스트용 데이터베이스를 분리하면서 다음과 같이 구성했다.
+
+- 개발 DB: `myshelf`
+- 테스트 DB: `myshelf_test`
+- PostgreSQL 인스턴스: 공유
+- 데이터베이스: 논리적으로 분리
+
+초기에는 `myshelf_test`를 수동으로 생성해야 했다. 신규 개발 환경에서도 동일한 데이터베이스 구성을 재현할 수 있도록 PostgreSQL 공식 이미지의 `docker-entrypoint-initdb.d` 초기화 메커니즘을 활용했다.
+
+#### 초기화 SQL
+
+`docker/postgres/init/01-create-test-db.sql`
+
+```sql
+CREATE DATABASE myshelf_test OWNER myshelf;
+```
+
+#### Docker Compose 설정
+
+`compose.yaml`의 PostgreSQL 서비스에 다음 마운트를 추가했다.
+
+```yaml
+volumes:
+  - postgres-data:/var/lib/postgresql/data
+  - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+```
+
+두 마운트의 목적은 서로 다르다.
+
+- `postgres-data:/var/lib/postgresql/data`: PostgreSQL 데이터를 보존하기 위한 Named Volume
+- `./docker/postgres/init:/docker-entrypoint-initdb.d:ro`: 호스트의 초기화 SQL 디렉터리를 컨테이너에 읽기 전용으로 연결하는 Bind Mount
+
+Bind Mount는 파일을 이미지에 복사하는 방식이 아니라, 호스트의 파일을 컨테이너에서도 접근할 수 있도록 연결하는 방식이다.
+
+#### 최초 초기화 동작
+
+PostgreSQL 데이터 디렉터리가 비어 있는 경우 다음 순서로 진행된다.
+
+1. PostgreSQL 데이터 디렉터리 초기화
+2. `POSTGRES_DB=myshelf` 설정에 따라 개발 DB 생성
+3. `/docker-entrypoint-initdb.d`의 초기화 SQL 실행
+4. 테스트 DB `myshelf_test` 생성
+
+이 초기화 스크립트는 **컨테이너를 시작할 때마다 실행되는 것이 아니다.**
+
+이미 초기화된 PostgreSQL 데이터 디렉터리가 존재하면 초기화 SQL은 재실행되지 않는다.
+
+따라서 `docker compose down` 후 `docker compose up -d`를 실행하더라도 기존 Named Volume이 유지된다면 데이터베이스 초기화 과정은 다시 수행되지 않는다.
+
+`--build` 옵션 역시 데이터베이스 초기화 여부를 결정하지 않는다. 이 옵션은 이미지 빌드와 관련된 기능이다.
+
+#### 기존 볼륨에서 테스트 DB 생성
+
+기존 볼륨에 `myshelf_test`가 존재하지 않는다면 다음 명령어로 한 번 생성한다.
+
+```bash
+docker compose exec postgres \
+  psql -U myshelf -d myshelf \
+  -c "CREATE DATABASE myshelf_test OWNER myshelf;"
+```
+
+전체 데이터베이스 목록은 다음 명령어로 확인한다.
+
+```bash
+docker compose exec postgres \
+  psql -U myshelf -d myshelf -l
+```
+
+테스트 DB만 생성하려는 목적으로 `docker compose down -v`를 실행해서는 안 된다. 개발 DB의 기존 데이터까지 삭제될 수 있기 때문이다.
+
+신규 볼륨에서 자동 생성 기능이 동작하는지는 별도의 Compose 프로젝트와 볼륨을 사용하여 검증했다. 검증 절차와 Compose 설정 병합 원리는 별도의 Troubleshooting 및 Learning 문서에서 다룬다.
+
 ---
 
 ## 5. Docker Compose와 PostgreSQL 주요 명령어
@@ -491,25 +567,41 @@ installed_rank | version | description | success
 
 이 내용은 실제 Windows 실습 사례다. 모든 환경에서 같은 문제가 발생한다는 의미는 아니다.
 
-### 8.2. macOS에서 추후 검증할 사항
+### 8.2. macOS에서 확인한 사항 (후속 검증)
 
-- Docker Desktop과 Docker Engine 정상 실행
-- Apple Silicon 환경의 PostgreSQL 이미지 아키텍처 지원
-- `docker compose up -d` 후 `docker compose ps` 상태 확인
-- 호스트 포트 5432 충돌 여부 확인
-- IntelliJ에서 `local` 프로파일로 Spring Boot 실행
-- Flyway 적용 및 PostgreSQL 스키마 확인
+최초 PostgreSQL 단독 실행 실습은 Windows 환경에서 수행했으며, 이후 macOS에서도 Docker Compose 환경을 구성했다.
 
-아직 macOS에서 동일 구성을 직접 검증하지 않았으므로 완료한 작업으로 기록하지 않는다.
+테스트 DB 자동 생성 기능을 추가한 뒤 다음 사항을 확인했다.
 
-### 8.3. 다음 학습 과제
+- 별도의 Compose 프로젝트 `myshelf-verify` 생성
+- 신규 Named Volume `myshelf-verify_postgres-data` 생성
+- PostgreSQL 17 컨테이너 Healthy 상태 확인
+- `myshelf`와 `myshelf_test` 자동 생성 확인
+- 두 데이터베이스의 소유자가 `myshelf`임을 확인
+- 검증용 컨테이너, 네트워크, 볼륨 정리 완료
 
-- Dockerfile을 이용한 Spring Boot 이미지 빌드
-- Spring Boot와 PostgreSQL 컨테이너 네트워크 연결
-- Compose로 두 서비스 함께 실행
-- 실행 환경별 설정과 환경변수 관리
+기존 개발 데이터의 삭제를 방지하기 위해 별도의 Compose 프로젝트 이름을 사용했다.
+
+이 검증은 PostgreSQL 최초 초기화와 데이터베이스 생성 여부를 대상으로 한다. macOS 환경에서 Spring Boot 통합 테스트 전체가 통과했음을 의미하지는 않는다.
+
+### 8.3. 후속 작업의 현재 상태
+
+PostgreSQL 단독 실행 이후 다음 작업을 진행했다.
+
+- Dockerfile을 이용한 Spring Boot 멀티스테이지 이미지 빌드 — 완료
+- Spring Boot와 PostgreSQL의 Compose 네트워크 연결 — 완료
+- Docker Compose로 Spring Boot와 PostgreSQL 통합 실행 — 완료
+- 환경변수를 통한 데이터베이스 접속 정보 관리 — 적용
+- 개발 DB와 통합 테스트 DB 분리 — 완료
+- PostgreSQL 최초 초기화 시 테스트 DB 자동 생성 — 완료
+
+향후 과제는 다음과 같다.
+
 - GitHub Actions 기반 CI/CD 구성
-- 별도 작업으로 Testcontainers PostgreSQL 통합 테스트 도입
+- Testcontainers를 이용한 통합 테스트 환경 자동 준비 검토
+- 테스트 간 데이터 격리 및 정리 전략 개선
+
+Docker Compose의 프로젝트 분리와 설정 병합에 대한 자세한 학습 내용은 별도 문서에서 다룬다.
 
 ---
 
@@ -522,4 +614,8 @@ installed_rank | version | description | success
 3. **Compose는 단일 컨테이너에도 유용하다.** 긴 `docker run` 옵션을 파일로 선언하고, 실행 환경을 Git으로 관리하며 반복해서 재현할 수 있다.
 4. **운영체제가 달라도 핵심 원리는 같다.** Docker Desktop의 Linux 실행 환경은 Windows와 macOS에서 다르지만, Compose 설정과 주요 명령은 공통으로 활용할 수 있다.
 
-MyShelf에서는 Windows 환경에서 PostgreSQL 컨테이너 실행, Flyway 적용, Hibernate 검증까지 완료했다. 다음 단계는 Spring Boot 애플리케이션을 Docker 이미지로 만들고 PostgreSQL 컨테이너와 연결하는 것이다.
+MyShelf에서는 Windows 환경에서 PostgreSQL 컨테이너 실행, Flyway 적용, Hibernate 검증을 완료했다.
+
+이후 Spring Boot까지 Docker Compose에 통합했으며, 개발 DB와 통합 테스트 DB를 분리했다. 또한 PostgreSQL 초기화 SQL을 통해 신규 데이터 볼륨에서 두 데이터베이스가 자동 생성되도록 개선했다.
+
+이 과정에서 컨테이너와 볼륨의 생명주기가 다르다는 점과, 데이터베이스 초기화는 컨테이너 생성 여부가 아니라 기존 데이터 디렉터리의 초기화 상태에 따라 결정된다는 점을 확인했다.
