@@ -1,6 +1,6 @@
 # MyShelf CI/CD 아키텍처
 
-> 상태: CI 구현 및 PR 검증 완료 (main 병합 전) / CD 미구현
+> 상태: CI 구현 및 main 병합 완료 / Branch Ruleset 적용 / CD 미구현
 > 작성일: 2026-10-21
 > 범위: 현재 CI 구성 및 향후 CD 확장 방향
 
@@ -48,9 +48,19 @@ GitHub Actions를 주 CI 도구로 사용하며, 별도의 Jenkins 서버는 운
 
 PR 생성 및 업데이트 시 CI가 실행되는 것을 확인했다.
 
-`push` 이벤트를 통한 메인 브랜치 검증은 CI 브랜치 병합 후 최종 확인할 예정이다.
+PR #13 병합 이후 `main` 브랜치에 대한 `push` 이벤트로 CI가 실행되었으며, 정상 완료를 확인했다.
 
-CI 결과를 병합 필수 조건으로 강제하는 Branch Protection 정책은 아직 적용하지 않았다.
+### 브랜치 보호 정책
+
+`main` 브랜치에 GitHub Branch Ruleset을 적용하여 다음 정책을 구성했다.
+
+- Pull Request를 통한 변경사항 병합 필수 (`Require a pull request before merging`)
+- 필수 CI 상태 검사 `build-and-test` 통과 요구 (`Require status checks to pass`)
+- 브랜치 삭제 제한 (`Restrict deletions`)
+- 강제 Push 차단 (`Block force pushes`)
+- 필수 리뷰 승인 수는 0으로 설정하여 개인 프로젝트 환경에 맞게 운영
+
+이를 통해 CI 검사에 실패한 변경사항이 `main`에 병합되지 않도록 제한한다.
 
 ### 2.3 실행 흐름
 
