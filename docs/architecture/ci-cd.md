@@ -1,7 +1,8 @@
 # MyShelf CI/CD 아키텍처
 
-> 상태: CI 구축 및 main 병합 완료 / Branch Ruleset 적용 / GHCR 게시 자동화 구현 및 실제 게시 검증 대기 / CD 미구현
+> 상태: CI 구축 완료 / Branch Ruleset 적용 / GHCR 이미지 게시 및 실행 검증 완료 / CD 미구현
 > 작성일: 2026-10-21
+> 최종 수정일: 2026-10-22
 > 범위: GitHub Actions 기반 CI, Docker 이미지 빌드·게시 및 향후 CD 확장
 
 ## 1. 개요
@@ -20,7 +21,9 @@ MyShelf는 GitHub Actions를 이용하여 코드 변경사항에 대한 빌드, 
 
 현재 Gradle 빌드·테스트 자동화와 PR 단계의 Docker 이미지 빌드 검증을 완료했다.
 
-GHCR 이미지 게시 Job도 구현했으며, `main` 브랜치 반영 이후 실제 게시 결과를 검증할 예정이다.
+또한 `main` 브랜치에 병합된 변경사항을 기반으로 GHCR 이미지 게시가 정상적으로 수행되는 것을 확인했다.
+
+게시된 이미지를 로컬 환경으로 다운로드하고 PostgreSQL과 연결하여 Spring Boot 애플리케이션을 실행했다. 회원가입 및 로그인 API 요청도 정상적으로 처리되는 것을 확인했다.
 
 Jenkins 실습과 운영 배포 자동화는 후속 작업으로 진행한다.
 
@@ -73,6 +76,8 @@ GHCR 인증에는 GitHub Actions가 자동 제공하는 `GITHUB_TOKEN`을 사용
 PR 생성 및 업데이트 시 CI가 자동 실행되는 것을 확인했다.
 
 PR #13 병합 이후 `main` 브랜치의 `push` 이벤트로 기존 CI가 실행되었으며, 정상 완료를 확인했다.
+
+이후 PR #16 병합으로 발생한 `main` Push 이벤트에서는 `build-and-test`와 `publish-image`가 성공적으로 실행되어 GHCR 이미지 게시까지 완료되었다.
 
 Docker 이미지 관련 Job은 이벤트별로 구분한다.
 
@@ -196,32 +201,46 @@ CI 비밀번호와 JWT Secret은 운영 비밀값과 분리된 테스트 전용 
 
 ### 4.1 검증 결과
 
-GitHub Actions 환경에서 다음 항목을 확인했다.
+GitHub Actions 및 로컬 Docker 환경에서 다음 항목을 확인했다.
 
-| 검증 항목 | 결과 |
-|---|---|
-| PostgreSQL 연결 | 성공 |
-| Spring `test` 프로필 활성화 | 성공 |
-| Flyway V1 마이그레이션 | 성공 |
-| Spotless 검사 | 성공 |
-| 전체 32개 테스트 | 통과 |
-| Gradle 빌드 | 성공 |
-| 의도적 테스트 실패 감지 | 확인 |
-| 실패 상황에서 테스트 리포트 업로드 | 확인 |
-| main 병합 후 기존 CI 실행 | 성공 |
-| Docker 멀티스테이지 이미지 빌드 | 성공 |
-| PR에서 `verify-image` 실행 | 성공 |
-| PR에서 `publish-image` 건너뛰기 | 확인 |
-| GHCR 실제 이미지 게시 | main 병합 후 검증 예정 |
-| 게시 이미지 다운로드 및 실행 | 미검증 |
+| 검증 항목 | 환경 | 결과 |
+|---|---|---|
+| PostgreSQL 연결 | CI | 성공 |
+| Spring `test` 프로필 활성화 | CI | 성공 |
+| Flyway V1 마이그레이션 | CI | 성공 |
+| Spotless 검사 | CI | 성공 |
+| 전체 32개 테스트 | CI | 통과 |
+| Gradle 빌드 | CI | 성공 |
+| 의도적 테스트 실패 감지 | CI | 확인 |
+| 실패 상황에서 테스트 리포트 업로드 | CI | 확인 |
+| main 병합 후 CI 실행 | CI | 성공 |
+| Docker 멀티스테이지 이미지 빌드 | CI | 성공 |
+| PR에서 `verify-image` 실행 | CI | 성공 |
+| PR에서 `publish-image` 건너뛰기 | CI | 확인 |
+| main Push에서 `publish-image` 실행 | CI | 성공 |
+| GHCR 이미지 게시 | GHCR | 성공 |
+| GHCR 이미지 다운로드 | 로컬 Docker | 성공 |
+| 게시된 이미지로 컨테이너 실행 | 로컬 Docker | 성공 |
+| PostgreSQL 연결 및 Flyway V1 적용 | 로컬 Docker | 성공 |
+| Spring Boot 정상 기동 | 로컬 Docker | 성공 |
+| 회원가입 API 요청 | 로컬 Docker | 성공 |
+| 로그인 API 요청 | 로컬 Docker | HTTP 200, Access Token 발급 확인 |
 
 기존 CI 구축 과정에서는 의도적 JUnit 실패 테스트를 통해 테스트 실패가 Gradle 및 GitHub Actions Job 실패로 전파되는 것을 확인했다.
 
 이후 Docker 이미지 빌드 검증 Job을 추가하여 PR에서 `build-and-test`와 `verify-image`가 모두 성공하는 것을 확인했다.
 
-`publish-image`는 PR에서 Skipped 처리되는 것을 확인했으나, 실제 GHCR 인증과 이미지 게시 성공 여부는 아직 검증하지 않았다.
+PR #16에서는 `publish-image`가 Skipped 처리되었으며, 병합 이후 `main` Push 이벤트에서는 GHCR 이미지 게시가 정상적으로 완료되었다.
 
-검증 과정과 학습 내용은 [GitHub Actions CI 학습 문서](../learning/infrastructure/github-actions-ci.md)에 기록한다.
+게시된 이미지를 로컬 환경으로 다운로드한 뒤 기존 Docker Compose의 PostgreSQL 컨테이너와 연결하여 실행했다.
+
+실행 로그에서 PostgreSQL 연결, Flyway V1 마이그레이션, JPA 초기화 및 Spring Boot 정상 기동을 확인했다.
+
+추가로 회원가입 및 로그인 API를 호출하여 애플리케이션이 실제 HTTP 요청을 처리하고 PostgreSQL과 연동하는 것까지 검증했다.
+
+다만 Docker 이미지 빌드 실패 상황을 의도적으로 발생시키는 검증과 실제 운영 서버 배포 및 CD 검증은 아직 수행하지 않았다.
+
+CI 구축 과정은 [GitHub Actions CI 학습 문서](../learning/infrastructure/github-actions-ci.md)에 기록하며, GHCR 게시 및 실행 과정은 별도의 학습 문서에서 정리한다.
 
 ### 4.2 테스트 리포트
 
@@ -242,7 +261,7 @@ GitHub Actions는 해당 파일을 `test-reports` Artifact로 업로드한다.
 
 ### 5.1 GHCR 이미지 게시 자동화
 
-GitHub Actions에 `publish-image` Job을 추가하여 GHCR 이미지 게시 자동화를 구성했다.
+GitHub Actions에 `publish-image` Job을 추가하여 GHCR 이미지 게시 자동화를 구성하고, 실제 게시 및 실행 검증을 완료했다.
 
 주요 설정은 다음과 같다.
 
@@ -262,18 +281,33 @@ ghcr.io/pickylemon/myshelf:sha-<커밋 SHA>
 
 PR에서는 `verify-image`를 통해 이미지 빌드 가능 여부만 검증한다.
 
-`main`에서는 `publish-image`가 이미지를 다시 빌드하여 GHCR에 게시하도록 구성했다. 따라서 PR에서 검증한 이미지와 `main`에서 게시할 이미지는 별도로 생성되는 빌드 결과물이다.
+`main`에서는 `publish-image`가 이미지를 다시 빌드하여 GHCR에 게시한다. 따라서 PR에서 검증한 이미지와 `main`에서 게시한 이미지는 별도로 생성된 빌드 결과물이다.
 
-실제 배포 단계에서는 GHCR에 게시된 이미지의 Digest를 기준으로 동일한 이미지를 재사용하는 방향을 고려한다.
+#### GHCR 게시 및 실행 검증
 
-현재 남은 검증 항목은 다음과 같다.
+PR #16 병합 이후 `main` Push 이벤트로 `publish-image`가 실행되었으며, GHCR 이미지 게시가 성공했다.
 
-- `main` Push 이후 `publish-image` 성공 여부
-- GitHub Packages에 이미지 등록 여부
-- GHCR 이미지 Pull
-- 게시된 이미지의 컨테이너 실행 및 애플리케이션 정상 기동
+게시된 이미지는 Private 패키지로 관리한다.
 
-해당 검증이 완료되면 Issue #15의 GHCR 게시 자동화 작업을 마무리한다.
+로컬 환경에서는 `read:packages` 권한을 가진 Personal Access Token (classic)으로 GHCR에 인증한 뒤 이미지를 다운로드했다.
+
+이후 다운로드한 이미지를 `docker run`으로 실행하고 기존 PostgreSQL 컨테이너와 연결했다.
+
+검증 과정에서 다음 결과를 확인했다.
+
+- GHCR 이미지 Pull 성공
+- 게시된 이미지로 컨테이너 실행 성공
+- `local` 프로필 활성화
+- PostgreSQL 연결 및 Flyway V1 마이그레이션 성공
+- Spring Boot 정상 기동
+- 회원가입 API를 통한 테스트 사용자 등록 성공
+- 로그인 API HTTP 200 및 Access Token 발급 확인
+
+이를 통해 **CI에서 빌드하고 GHCR에 게시한 이미지를 로컬에서 다시 빌드하지 않고도 실제 애플리케이션 실행에 사용할 수 있음**을 확인했다.
+
+현재까지 검증한 범위는 이미지 게시 및 로컬 실행이며, 실제 운영 서버에 대한 자동 배포는 포함하지 않는다.
+
+향후 CD 구축 시에는 GHCR에 게시된 동일한 이미지 Digest를 기준으로 배포하고, 배포 후 Health Check 및 실패 복구 절차를 검토할 예정이다.
 
 ### 5.2 Jenkins 학습
 
@@ -302,5 +336,6 @@ Jenkinsfile, 빌드 자동화, 실행 환경 및 관리 방식의 차이를 학�
 - CI 개념 및 검증 과정: [GitHub Actions CI 학습](../learning/infrastructure/github-actions-ci.md)
 - 개발 일정 및 후속 작업: [로드맵](../planning/roadmap.md)
 - GHCR 이미지 게시 자동화: GitHub Issue #15
+- GHCR 이미지 게시 및 실행 검증: [GitHub Container Registry 학습](../learning/infrastructure/github-container-registry.md)
 
 구체적인 구현 작업과 검증 결과는 GitHub Issues에서 관리한다.
