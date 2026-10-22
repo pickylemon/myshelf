@@ -2,7 +2,7 @@
 
 > 학습일: 2026-10-21
 > 최종 수정일: 2026-10-22
-> 대상: MyShelf GitHub Actions CI 구축 및 Docker 이미지 빌드 검증
+> 대상: MyShelf GitHub Actions CI 구축, Docker 이미지 빌드 검증 및 GHCR 게시
 > 관련 문서: [CI/CD 아키텍처](../../architecture/ci-cd.md)
 
 ## 1. 학습 목적
@@ -23,7 +23,9 @@ MyShelf는 기존에 개발자가 로컬 환경에서 직접 Gradle 빌드와 �
 
 이후 Docker 이미지 빌드 검증을 추가하여, 독립된 CI 환경에서도 애플리케이션을 컨테이너 이미지로 패키징할 수 있는지 확인했다.
 
-현재 GHCR 이미지 게시 자동화도 구현했으나, 실제 게시 성공 여부는 `main` 병합 이후 검증할 예정이다. 운영 배포는 별도 작업으로 진행한다.
+추가로 GHCR 이미지 게시 자동화를 구현하고, 실제 게시된 이미지를 로컬 환경으로 다운로드하여 Spring Boot 애플리케이션을 실행하는 데 성공했다.
+
+운영 서버 배포 및 CD 자동화는 별도 작업으로 진행한다.
 
 ## 2. CI와 GitHub Actions 기본 개념
 
@@ -175,7 +177,11 @@ MyShelf는 CI에 필요한 PostgreSQL을 GitHub Actions의 Service Container로 
 
 반면 CI에서는 통합 테스트에 필요한 `myshelf_test`만 생성한다.
 
-현재 PostgreSQL 서비스는 `build-and-test` Job에서만 사용하며, Docker 이미지 관련 Job들은 자체적인 PostgreSQL 서비스를 실행하지 않는다.
+현재 CI의 PostgreSQL 서비스는 `ci.yml`의 `build-and-test` Job에 정의되어 있으며, 로컬 Docker Compose 설정을 참조하지 않는다.
+
+또한 `verify-image`와 `publish-image`는 기존 `Dockerfile`을 이용해 이미지를 빌드하며, Docker Compose 파일을 실행하지 않는다.
+
+따라서 현재 MyShelf의 CI는 **테스트 DB 실행에는 GitHub Actions Services를 사용하고, 이미지 생성에는 Dockerfile을 사용하는 구조**다.
 
 ### 4.3 CI에서 초기화 SQL을 재사용하지 않은 이유
 
@@ -385,6 +391,8 @@ Artifact의 보관 기간은 7일로 설정했다.
 
 9. **이미지 빌드와 이미지 게시는 별개다.** 이미지를 성공적으로 빌드했더라도 Registry에 게시하지 않으면 다른 환경에서 바로 가져다 사용할 수 없다.
 
+10. **이미지 게시와 실제 실행 검증도 별개다.** GHCR 게시 성공만으로 Spring Boot 기동이나 DB 연동이 보장되지 않으므로, 게시된 이미지를 직접 실행하여 검증해야 한다.
+
 ## 9. 후속 학습 및 작업
 
 현재까지 완료한 항목은 다음과 같다.
@@ -396,14 +404,17 @@ Artifact의 보관 기간은 7일로 설정했다.
 - PR 단계의 Docker 이미지 빌드 검증
 - GHCR 게시를 위한 `publish-image` Job 구현
 - PR에서 `publish-image`가 Skipped 처리되는 동작 확인
+- PR #16 병합 이후 `main` Push 기반 GHCR 이미지 게시 성공
+- GHCR Private 이미지 인증 및 로컬 다운로드 성공
+- 게시된 이미지로 Spring Boot 실행 및 PostgreSQL 연동 성공
+- 회원가입 및 로그인 API 동작 확인
 
 다음 항목은 후속 작업으로 진행한다.
 
-- PR #16 병합 후 GHCR 실제 이미지 게시 검증
-- 게시된 이미지 다운로드 및 컨테이너 실행 검증
-- GHCR 관련 학습 문서 작성
+- GHCR 게시 및 실행 검증 과정의 학습 문서 작성
 - Jenkins Pipeline 기초 실습
 - 핵심 기능 개발 이후 운영 배포 및 CD 구축
+- 배포 이미지 Digest 관리, Health Check 및 롤백 전략 검토
 
 현재 CI의 실제 구성은 [CI/CD 아키텍처](../../architecture/ci-cd.md)를 기준으로 관리한다.
 
@@ -543,7 +554,7 @@ MyShelf는 다음과 같이 역할을 구분한다.
 
 따라서 PR에서는 이미지 생성 가능 여부를 확인하고, `main`에서는 게시할 이미지를 생성하도록 설계했다.
 
-현재 `publish-image` Job도 구현한 상태다.
+`publish-image` Job은 다음과 같이 구현했다.
 
 ```yaml
 publish-image:
@@ -582,13 +593,17 @@ publish-image:
 
 `GITHUB_TOKEN`은 GitHub Actions가 Workflow 실행 시 제공하는 임시 인증 토큰이며, `packages: write`는 GHCR 게시에 필요한 권한이다.
 
-따라서 현재 구성에서는 별도의 개인 액세스 토큰을 생성하지 않는다.
+따라서 현재 구성에서는 별도의 개인 액세스 토큰을 생성하지 않고 GHCR에 이미지를 게시한다.
 
-PR #16에서는 `publish-image`가 Skipped 처리되는 것을 확인했다. 실제 GHCR 인증 및 게시 성공 여부는 `main` 병합 이후 확인할 예정이다.
+PR #16에서는 `publish-image`가 Skipped 처리되는 것을 확인했다.
+
+이후 PR #16을 `main`에 병합하자 `push` 이벤트로 `build-and-test`와 `publish-image`가 실행되었으며, 실제 GHCR 이미지 게시에 성공했다.
+
+이를 통해 **PR에서는 게시 없이 이미지 빌드를 검증하고, `main`에서는 검증 성공 후 이미지를 게시하는 실행 정책**이 의도대로 동작함을 확인했다.
 
 ### 10.6 Runner에서 빌드한 이미지는 어디에 보관될까?
 
-현재 `verify-image`의 `docker/build-push-action`에는 `push: false`가 적용되어 있다.
+`verify-image`의 `docker/build-push-action`에는 `push: false`가 적용되어 있다.
 
 또한 `load: true`를 설정하지 않았다.
 
@@ -604,7 +619,7 @@ PR #16에서는 `publish-image`가 Skipped 처리되는 것을 확인했다. 실
 
 `push`는 특정 Registry를 의미하는 것이 아니다. 이미지 태그와 인증 설정에 따라 GHCR, Docker Hub 또는 다른 Registry로 게시할 수 있다.
 
-현재 MyShelf의 `publish-image`는 `ghcr.io`에 로그인하고 `ghcr.io/pickylemon/myshelf` 이미지 주소를 사용하도록 구성했다.
+현재 MyShelf의 `publish-image`는 `ghcr.io`에 로그인하고 `ghcr.io/pickylemon/myshelf` 이미지 주소를 사용한다.
 
 GitHub-hosted Runner는 Job 실행을 위한 임시 환경이다.
 
@@ -614,33 +629,60 @@ GitHub-hosted Runner는 Job 실행을 위한 임시 환경이다.
 
 **이미지가 정상적으로 만들어지는지 검증하는 것과 이미지를 보관·배포하는 것은 별개의 작업**이다.
 
-GHCR에 게시된 이미지는 이후 `docker pull`을 이용하여 다른 환경으로 가져올 수 있다.
+반면 `publish-image`는 GHCR에 이미지를 게시하므로 Runner가 종료된 뒤에도 Registry에 이미지가 남는다.
+
+실제로 게시된 이미지를 로컬에서 `docker pull`로 다운로드하여 컨테이너를 실행하는 데 성공했다.
 
 ### 10.7 검증 결과와 한계
 
-PR #16에서 다음 결과를 확인했다.
+PR #16과 `main` 병합 이후 다음 결과를 확인했다.
+
+**PR 검증**
 
 - `build-and-test` 성공
 - `verify-image` 성공
 - 멀티스테이지 Docker 이미지 빌드 성공
 - `publish-image` Skipped 확인
 
-이를 통해 GitHub Actions 환경에서 MyShelf의 Docker 이미지를 정상적으로 생성할 수 있고, PR에서 게시 Job이 실행되지 않도록 제한하는 조건도 동작함을 확인했다.
+**main Push 및 GHCR 게시 검증**
+
+- `build-and-test` 성공
+- `publish-image` 성공
+- GHCR 이미지 게시 성공
+- 커밋 SHA 기반 이미지 태그 생성 확인
+
+**로컬 실행 검증**
+
+- GHCR Private 이미지 인증 성공
+- 게시된 이미지 다운로드 성공
+- Docker 컨테이너 생성 및 실행 성공
+- Spring Boot `local` 프로필 활성화
+- PostgreSQL 연결 성공
+- Flyway V1 마이그레이션 적용 성공
+- JPA 초기화 및 Spring Boot 정상 기동
+- 회원가입 API 동작 확인
+- 로그인 API HTTP 200 응답 및 Access Token 발급 확인
+
+이번 검증에서는 GitHub Actions가 GHCR에 게시한 이미지를 로컬에서 다시 빌드하지 않고 실행했다.
+
+특히 로컬 Docker Compose로 PostgreSQL 컨테이너를 준비하고, GHCR에서 다운로드한 이미지로 별도의 애플리케이션 컨테이너를 실행했다.
+
+실행 시에는 Docker 네트워크, 포트 매핑, 환경변수 및 Spring 프로필을 명시적으로 지정했다.
+
+Spring Boot 로그에서 DB 연결과 Flyway 마이그레이션이 성공했음을 확인했으며, 실제 회원가입 및 로그인 요청도 정상 처리되었다.
+
+따라서 이번 검증은 이미지 생성 가능 여부뿐 아니라 **게시된 이미지의 실제 실행 가능성과 기본 API 동작**까지 확인한 것이다.
 
 다만 아직 다음 항목은 검증하지 않았다.
 
 - 의도적인 Docker 이미지 빌드 실패 감지
-- `main`에서 `publish-image` 실행 및 GHCR 게시 성공
-- GHCR 이미지 다운로드
-- 게시된 이미지로 컨테이너 실행
-- Spring Boot 애플리케이션 정상 기동
-- 실제 배포 환경에서의 실행
+- 실제 운영 서버에서의 실행
+- 자동 배포 및 배포 후 Health Check
+- 배포 실패 시 롤백
 
-특히 **이미지 빌드 성공은 컨테이너 실행 성공을 의미하지 않는다.**
+이 중 Docker 이미지 빌드 실패 감지 검증은 향후 필요에 따라 추가할 수 있으며, 운영 배포와 롤백은 CD 구축 단계에서 다룬다.
 
-예를 들어 이미지 생성에는 문제가 없더라도 컨테이너 실행 시 DB 연결 실패, 필수 환경변수 누락 등으로 애플리케이션이 기동하지 못할 수 있다.
-
-따라서 향후 GHCR에 이미지를 게시한 뒤 실제 컨테이너 실행과 정상 기동을 검증할 예정이다.
+GHCR 인증, Private 이미지 Pull 및 `docker run` 실행 과정의 상세 학습은 [GitHub Container Registry 학습 문서](github-container-registry.md)에 정리한다.
 
 ### 10.8 CI 검증과 실제 배포의 관계
 
@@ -650,19 +692,59 @@ Docker는 Java 런타임과 애플리케이션 실행 파일 등 필요한 구�
 
 하지만 CPU 아키텍처, 컨테이너 실행 환경, DB 연결, 네트워크 등의 호환성은 별도로 확보해야 한다.
 
-향후 목표 흐름은 다음과 같다.
+현재 MyShelf에서 구현하고 검증한 흐름은 다음과 같다.
 
-1. CI에서 코드 빌드 및 테스트
-2. Docker 이미지 빌드 검증
-3. CI 성공 후 GHCR에 이미지 게시
-4. 게시된 이미지의 실행 검증
-5. 동일한 이미지 Digest를 기준으로 실제 서버에 배포
-6. 배포 후 정상 동작 확인
+```text
+PR 생성 및 업데이트
+        |
+        v
+  build-and-test
+        |
+        v
+   verify-image
+        |
+        v
+     PR 병합
+        |
+        v
+    push → main
+        |
+        v
+  build-and-test
+        |
+        v
+   publish-image
+        |
+        v
+       GHCR
+        |
+        | docker pull
+        v
+  로컬 컨테이너 실행
+        |
+        v
+ PostgreSQL 및 API 검증
+```
+
+여기까지는 GitHub Actions의 CI와 이미지 게시 자동화, 그리고 로컬에서의 수동 실행 검증에 해당한다.
+
+실제 운영 서버에 GHCR 이미지를 자동 배포하는 CD는 아직 구현하지 않았다.
+
+향후 CD 구축 시 목표 흐름은 다음과 같다.
+
+1. GHCR에 게시된 이미지 선택
+2. 이미지 Digest를 기준으로 배포할 이미지 식별
+3. 실제 배포 서버에서 동일한 이미지 다운로드
+4. 운영 환경변수 및 DB 연결 구성
+5. 컨테이너 실행 및 Health Check
+6. 배포 실패 시 복구 또는 이전 이미지로 롤백
 
 여기서 중요한 원칙은 **Build Once, Deploy Many**이다.
 
 배포할 때마다 소스 코드를 다시 빌드하는 것이 아니라, 게시된 동일한 이미지를 재사용하여 배포 환경 사이의 차이를 줄이는 방식이다.
 
-다만 현재 PR에서 검증한 이미지와 `main`에서 게시할 이미지는 별도 빌드 결과물이므로 동일한 이미지라고 볼 수 없다.
+다만 현재 PR에서 검증한 이미지와 `main`에서 게시한 이미지는 별도 빌드 결과물이므로 동일한 이미지라고 볼 수 없다.
 
-향후 GHCR에 게시한 이미지를 실행 검증하고, 그 동일한 이미지 Digest를 실제 배포에 사용하는 방향으로 구성할 예정이다.
+이번 로컬 실행 검증에서는 `main`에서 GHCR에 게시한 이미지를 그대로 다운로드하여 사용했다.
+
+향후 실제 CD를 구축할 때도 검증한 이미지의 Digest를 기준으로 동일한 이미지를 배포하는 방향으로 구성할 예정이다.
