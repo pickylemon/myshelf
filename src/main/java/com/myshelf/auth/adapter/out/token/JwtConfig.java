@@ -32,11 +32,11 @@ public class JwtConfig {
 
     if (keyBytes.length < MINIMUM_SECRET_BYTE_LENGTH) {
       throw new IllegalStateException(
-              "jwt.secret must be at least "
-                      + MINIMUM_SECRET_BYTE_LENGTH
-                      + " bytes when Base64-decoded for HS256, but was "
-                      + keyBytes.length
-                      + " bytes.");
+          "jwt.secret must be at least "
+              + MINIMUM_SECRET_BYTE_LENGTH
+              + " bytes when Base64-decoded for HS256, but was "
+              + keyBytes.length
+              + " bytes.");
     }
 
     return new SecretKeySpec(keyBytes, "HmacSHA256");
@@ -45,16 +45,12 @@ public class JwtConfig {
   @Bean
   public JwtEncoder jwtEncoder(SecretKey jwtSecretKey) {
     // SecretKey -> NimbusJwtEncoder
-    return NimbusJwtEncoder.withSecretKey(jwtSecretKey)
-            .algorithm(MacAlgorithm.HS256)
-            .build();
+    return NimbusJwtEncoder.withSecretKey(jwtSecretKey).algorithm(MacAlgorithm.HS256).build();
   }
 
   @Bean
   public JwtDecoder jwtDecoder(SecretKey jwtSecretKey) {
     // SecretKey -> NimbusJwtDecoder
-    return NimbusJwtDecoder.withSecretKey(jwtSecretKey)
-            .macAlgorithm(MacAlgorithm.HS256)
-            .build();
+    return NimbusJwtDecoder.withSecretKey(jwtSecretKey).macAlgorithm(MacAlgorithm.HS256).build();
   }
 }
