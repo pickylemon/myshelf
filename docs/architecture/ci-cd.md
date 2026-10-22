@@ -1,8 +1,8 @@
 # MyShelf CI/CD 아키텍처
 
-> 상태: CI 구축 및 main 병합 완료 / Branch Ruleset 적용 / Docker 이미지 빌드 검증 완료 / GHCR·CD 미구현
+> 상태: CI 구축 및 main 병합 완료 / Branch Ruleset 적용 / GHCR 게시 자동화 구현 및 실제 게시 검증 대기 / CD 미구현
 > 작성일: 2026-10-21
-> 범위: 현재 CI 구성 및 향후 이미지 게시·CD 확장 방향
+> 범위: GitHub Actions 기반 CI, Docker 이미지 빌드·게시 및 향후 CD 확장
 
 ## 1. 개요
 
@@ -15,12 +15,14 @@ MyShelf는 GitHub Actions를 이용하여 코드 변경사항에 대한 빌드, 
 - Pull Request 단위의 자동화된 검증
 - 로컬 환경에 의존하지 않는 빌드 및 테스트
 - PostgreSQL 통합 테스트의 독립성과 재현성 확보
-- 배포 가능한 Docker 이미지의 빌드 검증
-- 향후 이미지 게시 및 CD 자동화 기반 마련
+- Docker 이미지 빌드 검증 및 Registry 게시 자동화
+- 향후 CD 자동화 기반 마련
 
-현재는 **Gradle 빌드·테스트 자동화와 PR 단계의 Docker 이미지 빌드 검증까지 구현**했다.
+현재 Gradle 빌드·테스트 자동화와 PR 단계의 Docker 이미지 빌드 검증을 완료했다.
 
-GHCR 이미지 게시, Jenkins 실습, 운영 배포 자동화는 후속 작업으로 진행한다.
+GHCR 이미지 게시 Job도 구현했으며, `main` 브랜치 반영 이후 실제 게시 결과를 검증할 예정이다.
+
+Jenkins 실습과 운영 배포 자동화는 후속 작업으로 진행한다.
 
 ## 2. GitHub Actions CI 구성
 
@@ -38,50 +40,65 @@ CI Workflow는 `.github/workflows/ci.yml`에 정의한다.
 | Spring 프로필 | `test` |
 | Gradle 빌드 명령어 | `bash ./gradlew clean build --no-daemon` |
 | Docker 이미지 빌드 | Docker Buildx |
-| Workflow 권한 | `contents: read` |
+| Workflow 기본 권한 | `contents: read` |
+
+Java, Gradle, PostgreSQL 및 Spring 프로필 설정은 `build-and-test` Job에서 사용한다. Docker 이미지 관련 Job은 별도의 Runner에서 기존 멀티스테이지 Dockerfile을 이용해 빌드한다.
 
 GitHub Actions를 주 CI 도구로 사용하며, 별도의 Jenkins 서버는 운영하지 않는다.
 
-현재 Workflow는 두 개의 Job으로 구성된다.
+현재 Workflow는 세 개의 Job으로 구성된다.
 
 | Job | 역할 | 실행 조건 |
 |---|---|---|
 | `build-and-test` | Gradle 빌드, Spotless 검사, PostgreSQL 통합 테스트 | PR, main Push, 수동 실행 |
 | `verify-image` | Docker 이미지 빌드 가능 여부 검증 | PR, `build-and-test` 성공 후 |
+| `publish-image` | Docker 이미지 빌드 및 GHCR 게시 | main Push, `build-and-test` 성공 후 |
 
-`verify-image`는 `needs: build-and-test`를 통해 선행 Job에 의존한다.
+`verify-image`와 `publish-image`는 모두 `needs: build-and-test`를 통해 선행 Job에 의존한다.
+
+두 Job은 실행 이벤트에 따라 구분되며, 각각 선행 Job이 성공한 경우에만 실행된다.
+
+Workflow의 기본 권한은 `contents: read`이고, `publish-image` Job에는 `packages: write` 권한을 추가한다.
+
+GHCR 인증에는 GitHub Actions가 자동 제공하는 `GITHUB_TOKEN`을 사용한다.
 
 ### 2.2 실행 조건
 
 | 이벤트 | 목적 |
 |---|---|
 | `pull_request` → `main` | PR 병합 전 빌드·테스트 및 이미지 빌드 검증 |
-| `push` → `main` | 메인 브랜치 반영 후 빌드·테스트 검증 |
+| `push` → `main` | 메인 브랜치 빌드·테스트 및 GHCR 이미지 게시 |
 | `workflow_dispatch` | 수동 빌드·테스트 실행 |
 
-PR 생성 및 업데이트 시 CI가 실행되는 것을 확인했다.
+PR 생성 및 업데이트 시 CI가 자동 실행되는 것을 확인했다.
 
-PR #13 병합 이후 `main` 브랜치의 `push` 이벤트로 CI가 실행되었으며 정상 완료를 확인했다.
+PR #13 병합 이후 `main` 브랜치의 `push` 이벤트로 기존 CI가 실행되었으며, 정상 완료를 확인했다.
 
-이미지 빌드 검증 Job인 `verify-image`는 현재 PR 이벤트에서만 실행된다.
+Docker 이미지 관련 Job은 이벤트별로 구분한다.
+
+- PR: `verify-image` 실행, `publish-image` 건너뜀
+- main Push: `publish-image` 실행, `verify-image` 건너뜀
+- 수동 실행: 현재는 `build-and-test`만 실행
 
 #### 브랜치 보호 정책
 
 `main` 브랜치에 GitHub Branch Ruleset을 적용하여 다음 정책을 구성했다.
 
 - Pull Request를 통한 변경사항 병합 필수 (`Require a pull request before merging`)
-- 필수 CI 상태 검사 `build-and-test` 통과 요구 (`Require status checks to pass`)
+- 필수 CI 상태 검사 통과 요구 (`Require status checks to pass`)
+    - `build-and-test`
+    - `verify-image`
 - 브랜치 삭제 제한 (`Restrict deletions`)
 - 강제 Push 차단 (`Block force pushes`)
 - 필수 리뷰 승인 수 0으로 설정
 
-이를 통해 필수 CI 검사에 실패한 변경사항이 `main`에 병합되지 않도록 제한한다.
+이를 통해 Gradle 빌드·테스트 또는 Docker 이미지 빌드 검증에 실패한 PR의 병합을 제한한다.
 
-현재 `verify-image`는 필수 상태 검사에 등록하지 않았으며, GHCR 게시 작업의 PR 병합 전에 추가할 예정이다.
+현재 `publish-image`는 PR 단계에서 실행되지 않으므로 필수 상태 검사에 포함하지 않는다.
 
 ### 2.3 실행 흐름
 
-PR에서 실행되는 CI는 다음 구조로 동작한다.
+**PR에서 실행되는 CI**
 
 ```text
 pull_request → main
@@ -90,8 +107,7 @@ pull_request → main
   build-and-test
   - PostgreSQL 서비스 준비
   - JDK 21 및 Gradle 환경 구성
-  - Gradle 빌드
-  - Spotless 검사
+  - Gradle 빌드 및 Spotless 검사
   - Flyway 마이그레이션
   - PostgreSQL 통합 테스트
   - 테스트 리포트 업로드
@@ -107,17 +123,35 @@ pull_request → main
    PR 검증 완료
 ```
 
-`build-and-test`가 실패하면 `verify-image`는 실행되지 않는다.
+**main 브랜치 반영 이후 실행되는 CI**
 
-`verify-image`는 기존 멀티스테이지 Dockerfile을 사용한다.
+```text
+push → main
+      |
+      v
+build-and-test
+      |
+      | 성공 시
+      v
+publish-image
+  - Docker Buildx 준비
+  - GHCR 인증
+  - 멀티스테이지 Docker 이미지 빌드
+  - 커밋 SHA 기반 태그 지정
+  - GHCR 이미지 게시
+```
+
+이미지 빌드에는 기존 멀티스테이지 Dockerfile을 사용한다.
 
 - Builder Stage: `eclipse-temurin:21-jdk` 환경에서 Gradle `bootJar` 실행
 - Runtime Stage: `eclipse-temurin:21-jre` 환경에 생성된 JAR 복사
 - 최종 이미지: Java 21 런타임과 MyShelf 애플리케이션 포함
 
-이미지 빌드에는 `docker/build-push-action@v6`을 사용하며, `push: false`로 설정하여 Registry에 게시하지 않는다.
+`verify-image`는 `docker/build-push-action@v6`의 `push: false` 설정으로 이미지 빌드만 수행한다.
 
-따라서 현재 단계에서는 **이미지 생성 가능 여부만 검증**하며, 컨테이너 실행과 애플리케이션 정상 기동까지 확인하지는 않는다.
+반면 `publish-image`는 `push: true`로 이미지를 GHCR에 게시하도록 구성했다.
+
+이미지 빌드 성공은 컨테이너 실행이나 애플리케이션의 정상 기동까지 보장하지 않는다. 게시된 이미지의 실행 검증은 별도로 진행한다.
 
 ## 3. 테스트 데이터베이스 구성
 
@@ -137,7 +171,7 @@ pull_request → main
 
 CI의 `build-and-test` Job은 독립적인 PostgreSQL 서비스 컨테이너를 사용하며 개발자 로컬 DB에 접근하지 않는다.
 
-`verify-image` Job은 현재 PostgreSQL 서비스 없이 Docker 이미지만 빌드한다.
+`verify-image`와 `publish-image` Job은 PostgreSQL 서비스를 실행하지 않고 Docker 이미지 빌드 작업만 수행한다.
 
 ### 3.2 CI 데이터베이스 초기화
 
@@ -164,7 +198,7 @@ CI 비밀번호와 JWT Secret은 운영 비밀값과 분리된 테스트 전용 
 
 GitHub Actions 환경에서 다음 항목을 확인했다.
 
-| 항목 | 결과 |
+| 검증 항목 | 결과 |
 |---|---|
 | PostgreSQL 연결 | 성공 |
 | Spring `test` 프로필 활성화 | 성공 |
@@ -174,20 +208,24 @@ GitHub Actions 환경에서 다음 항목을 확인했다.
 | Gradle 빌드 | 성공 |
 | 의도적 테스트 실패 감지 | 확인 |
 | 실패 상황에서 테스트 리포트 업로드 | 확인 |
+| main 병합 후 기존 CI 실행 | 성공 |
 | Docker 멀티스테이지 이미지 빌드 | 성공 |
-| `verify-image` Job 실행 | 성공 |
+| PR에서 `verify-image` 실행 | 성공 |
+| PR에서 `publish-image` 건너뛰기 | 확인 |
+| GHCR 실제 이미지 게시 | main 병합 후 검증 예정 |
+| 게시 이미지 다운로드 및 실행 | 미검증 |
 
 기존 CI 구축 과정에서는 의도적 JUnit 실패 테스트를 통해 테스트 실패가 Gradle 및 GitHub Actions Job 실패로 전파되는 것을 확인했다.
 
-이후 Docker 이미지 빌드 검증 Job을 추가하고, PR에서 `build-and-test`와 `verify-image`가 모두 성공하는 것을 확인했다.
+이후 Docker 이미지 빌드 검증 Job을 추가하여 PR에서 `build-and-test`와 `verify-image`가 모두 성공하는 것을 확인했다.
 
-다만 Docker 이미지 빌드 실패 상황을 별도로 검증하거나, 생성된 이미지로 컨테이너를 실행하는 검증은 아직 수행하지 않았다.
+`publish-image`는 PR에서 Skipped 처리되는 것을 확인했으나, 실제 GHCR 인증과 이미지 게시 성공 여부는 아직 검증하지 않았다.
 
 검증 과정과 학습 내용은 [GitHub Actions CI 학습 문서](../learning/infrastructure/github-actions-ci.md)에 기록한다.
 
 ### 4.2 테스트 리포트
 
-테스트 결과는 다음 경로에 생성된다.
+Gradle 테스트 결과는 다음 경로에 생성된다.
 
 - HTML: `build/reports/tests/test/`
 - XML: `build/test-results/test/`
@@ -200,26 +238,42 @@ GitHub Actions는 해당 파일을 `test-reports` Artifact로 업로드한다.
 
 이를 통해 테스트 실패 이후에도 생성된 리포트를 확인할 수 있도록 구성했다.
 
-## 5. 향후 확장 계획
+## 5. 이미지 게시 구성 및 향후 확장
 
-### 5.1 Docker 이미지 게시 자동화
+### 5.1 GHCR 이미지 게시 자동화
 
-PR 단계에서 Docker 이미지 빌드가 성공하는 것을 확인했으며, 다음으로 GHCR 게시 자동화를 구현한다.
+GitHub Actions에 `publish-image` Job을 추가하여 GHCR 이미지 게시 자동화를 구성했다.
 
-목표는 다음과 같다.
+주요 설정은 다음과 같다.
 
-- `main` 브랜치 반영 시 CI 성공 후 Docker 이미지 빌드
-- GitHub Container Registry(GHCR)에 이미지 게시
-- `GITHUB_TOKEN` 기반 인증 및 최소 권한 적용
-- 커밋 식별자 기반 이미지 태그 관리
-- GHCR에 게시된 이미지 다운로드 및 실행 검증
-- 이미지 빌드 검증을 필수 PR 상태 검사로 등록
+- `main` Push 이벤트에서만 실행
+- `build-and-test` 성공 이후 실행
+- `GITHUB_TOKEN`으로 GHCR 인증
+- `packages: write` 권한을 게시 Job에만 부여
+- Docker Buildx로 기존 멀티스테이지 Dockerfile 빌드
+- 커밋 SHA 기반 이미지 태그 사용
+- `push: true`로 GHCR에 이미지 게시
 
-이미지 게시 Job은 기존 `build-and-test` 결과에 의존하도록 구성할 예정이다.
+게시 대상 이미지 이름은 다음과 같다.
 
-PR에서는 이미지 빌드만 수행하고, Registry 게시 작업은 `main` 브랜치 반영 이후 실행하는 방향으로 설계한다.
+```text
+ghcr.io/pickylemon/myshelf:sha-<커밋 SHA>
+```
 
-구체적인 인증, 태그, 게시 조건은 구현 과정에서 확정한다.
+PR에서는 `verify-image`를 통해 이미지 빌드 가능 여부만 검증한다.
+
+`main`에서는 `publish-image`가 이미지를 다시 빌드하여 GHCR에 게시하도록 구성했다. 따라서 PR에서 검증한 이미지와 `main`에서 게시할 이미지는 별도로 생성되는 빌드 결과물이다.
+
+실제 배포 단계에서는 GHCR에 게시된 이미지의 Digest를 기준으로 동일한 이미지를 재사용하는 방향을 고려한다.
+
+현재 남은 검증 항목은 다음과 같다.
+
+- `main` Push 이후 `publish-image` 성공 여부
+- GitHub Packages에 이미지 등록 여부
+- GHCR 이미지 Pull
+- 게시된 이미지의 컨테이너 실행 및 애플리케이션 정상 기동
+
+해당 검증이 완료되면 Issue #15의 GHCR 게시 자동화 작업을 마무리한다.
 
 ### 5.2 Jenkins 학습
 
@@ -247,5 +301,6 @@ Jenkinsfile, 빌드 자동화, 실행 환경 및 관리 방식의 차이를 학�
 - Docker 이미지 빌드 구성: `Dockerfile`, `.dockerignore`
 - CI 개념 및 검증 과정: [GitHub Actions CI 학습](../learning/infrastructure/github-actions-ci.md)
 - 개발 일정 및 후속 작업: [로드맵](../planning/roadmap.md)
+- GHCR 이미지 게시 자동화: GitHub Issue #15
 
-구체적인 구현 작업은 GitHub Issues에서 관리한다.
+구체적인 구현 작업과 검증 결과는 GitHub Issues에서 관리한다.
