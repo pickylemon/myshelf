@@ -144,14 +144,14 @@ Authorization: Bearer <access-token>
 
 존재하지 않는 이메일 또는 틀린 비밀번호는 모두 `INVALID_CREDENTIALS`로 처리하고, 로그인 실패 응답은 HTTP 401 및 기존 `ProblemDetail` 형식을 따른다. 두 실패 상황에서 사용자 존재 여부가 불필요하게 드러나지 않도록 한다.
 
-이 **로그인 실패 처리 경로**는 Resource Server의 **JWT 요청 인증 실패 처리 경로**와 다르다. 따라서 두 경로의 오류 응답이 자동으로 같은 형식이 되지는 않는다.
+이 **로그인 실패 처리 경로**는 Resource Server의 **JWT 요청 인증 실패 처리 경로**와 다르다. Feature 3에서는 `ProblemDetailAuthenticationEntryPoint`를 추가해 필터의 인증 실패도 기존과 같은 ProblemDetail 구조로 응답하도록 연결했다. 두 경로의 처리가 자동으로 통합되는 것은 아니다.
 
 ### 로그인 요청에서 발생할 수 있는 두 종류의 인증 실패
 
 | 실패 상황 | 발생 위치 | 응답 처리 |
 |---|---|---|
 | 이메일·비밀번호가 일치하지 않음 | `LoginController` 진입 후 로그인 처리 과정 | `LoginControllerAdvice`가 HTTP 401과 `ProblemDetail` 반환 |
-| 잘못된 Bearer Token을 요청에 첨부 | Controller 진입 전 `BearerTokenAuthenticationFilter` | 기본 `BearerTokenAuthenticationEntryPoint`가 HTTP 401과 `WWW-Authenticate` 헤더 반환 |
+| 잘못된 Bearer Token을 요청에 첨부 | Controller 진입 전 `BearerTokenAuthenticationFilter` | `ProblemDetailAuthenticationEntryPoint`가 기본 Bearer 상태·헤더 처리를 위임한 뒤 `AUTHENTICATION_FAILED` ProblemDetail 반환 |
 
 로그인 API는 **Bearer Token이 없어도 접근할 수 있다.** 반대로 Bearer Token이 명시적으로 첨부되면 인증 필터가 이를 검증하며, 잘못된 토큰은 `permitAll()`이 적용된 로그인 경로에서도 거부될 수 있다.
 
@@ -160,6 +160,7 @@ Authorization: Bearer <access-token>
 **관련 코드**
 
 - `auth/adapter/in/web/LoginController`
+- `auth/adapter/in/security/ProblemDetailAuthenticationEntryPoint`
 - `auth/application/service/AuthService`
 - `auth/adapter/out/security/SpringSecurityAuthenticationAdapter`
 - `auth/adapter/out/security/UserDetailsServiceAdapter`, `AuthUserPrincipal`
@@ -172,7 +173,7 @@ Authorization: Bearer <access-token>
 - `SpringSecurityAuthenticationAdapterTest`: 실제 사용자 인증 어댑터 동작
 - `JwtAccessTokenAdapterTest`: 발급 토큰의 서명, `sub`·`iat`·`exp`
 - `LoginIntegrationTest`: 실제 로그인 API의 성공/실패 흐름
-- `JwtRequestAuthenticationIntegrationTest`: 로그인 API에 잘못된 Bearer Token을 첨부할 때 401과 `WWW-Authenticate` 헤더가 반환되는지 확인 (Controller 미실행 여부 자체를 단언하는 테스트는 아님)
+- `JwtRequestAuthenticationIntegrationTest`: 실제 로그인 JWT의 요청 인증 성공과 실패 사례를 총 8건 검증한다. `loginWithInvalidBearerTokenReturnsUnauthorized()`는 공개 로그인 API의 잘못된 Bearer 토큰에 대해 401, 인증 헤더, ProblemDetail 본문을 확인한다. Controller 미실행 여부 자체를 단언하는 테스트는 아니다.
 
 **디버거로 따라가 보기**
 
@@ -194,4 +195,4 @@ Authorization: Bearer <access-token>
 - [Spring Security — DaoAuthenticationProvider](https://docs.spring.io/spring-security/reference/servlet/authentication/passwords/dao-authentication-provider.html)
 - [Spring Security — Servlet Authentication Architecture](https://docs.spring.io/spring-security/reference/servlet/authentication/architecture.html)
 
-> 이 문서는 대화에서 공유된 MyShelf 코드 분석 및 구현 현황을 바탕으로 작성했다. 최신 저장소 전체를 직접 조회해 대조한 문서는 아니므로, 클래스 변경 시 실제 소스와 함께 검토한다.
+> 2026-10-23에 로그인 관련 소스와 Feature 3의 EntryPoint·통합 테스트를 대조해 갱신했다. JWT 요청 인증 8건의 통과는 확인했으며, 기존 로그인·회원가입을 포함한 전체 회귀 결과는 최종 검증에서 별도로 확인한다.

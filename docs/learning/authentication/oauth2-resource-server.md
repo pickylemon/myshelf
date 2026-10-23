@@ -42,6 +42,8 @@ MyShelf는 하나의 Spring Boot 애플리케이션 안에서 다음 두 역할�
 API:    Client → SecurityFilterChain → JWT 검증 → 접근 허용 시 Controller
 ```
 
+`JwtConfig`는 Encoder와 Decoder에 같은 SecretKey와 HS256을 적용한다. Decoder는 기본 시간 검증에 MyShelf의 `sub` UUID 정규식 검증을 추가한다. 인증 실패 응답은 `ProblemDetailAuthenticationEntryPoint`가 기본 Bearer 상태 코드·헤더 처리를 유지하면서 JSON 본문을 작성한다.
+
 ## 3. `permitAll()`과 JWT 검증은 왜 별개인가?
 
 `permitAll()`은 **인증이 없어도 해당 경로에 접근할 수 있다는 인가 규칙**이다. `SecurityFilterChain`의 실행이나 첨부된 Bearer 토큰의 검증을 생략한다는 뜻은 아니다.
@@ -62,8 +64,10 @@ API:    Client → SecurityFilterChain → JWT 검증 → 접근 허용 시 Cont
 
 `JwtRequestAuthenticationIntegrationTest`에서는
 `permitAll()`이 적용된 로그인 API에 잘못된 Bearer Token을
-첨부했을 때 HTTP 401과 `WWW-Authenticate` 헤더가
-반환되는지 검증했다.
+첨부했을 때 HTTP 401과 `WWW-Authenticate` 헤더,
+`AUTHENTICATION_FAILED` 코드의 ProblemDetail JSON이 반환되는지 검증했다.
+
+이 사례를 포함해 현재 7개 테스트 메서드의 총 8개 실행 사례가 통과했다. 공개 API의 무토큰 접근은 기존 로그인·회원가입 통합 테스트가 담당하므로 JWT 테스트 클래스에 복제하지 않았다.
 
 이는 `permitAll()`이 인증 필터의 실행을 생략하는
 설정이 아니라는 점을 보여준다.
@@ -71,6 +75,8 @@ API:    Client → SecurityFilterChain → JWT 검증 → 접근 허용 시 Cont
 인증(Authentication)과 인가(Authorization)는
 서로 다른 책임을 가지며, 기본 필터 구성에서는
 Bearer Token 인증 처리가 인가 판단보다 먼저 수행된다.
+
+토큰이 없는 인증 필요 경로에서는 `AuthorizationFilter`의 접근 거부를 `ExceptionTranslationFilter`가 처리해 EntryPoint를 호출한다. 반면 잘못된 JWT는 Bearer 인증 필터의 실패 처리 경로에서 EntryPoint로 연결된다. 자세한 호출 흐름과 `commence()`의 의미는 [JWT 요청 인증 문서의 실패 처리](./jwt-request-authentication.md#7-인증-실패하면-어떻게-되는가)를 참고한다.
 
 ## 4. 기억할 핵심
 

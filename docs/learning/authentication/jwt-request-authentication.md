@@ -1,197 +1,128 @@
 # JWT 기반 API 요청 인증 — Feature 3
 
 > MyShelf 학습 문서 · 기준: 2026-10-23  
-> 범위: `Authorization: Bearer <JWT>`로 보호된 API에 접근할 때 Spring Security가 수행하는 인증  
-> 관련 문서: [로그인 인증과 JWT 발급](./login-authentication-and-jwt-issuance.md), `docs/architecture/authentication.md`
+> 범위: JWT 검증 **설정·정책·통합 테스트**와 Feature 3 구현 결과  
+> 함께 읽기: [Spring Security 인증·인가 구조](./spring-security-authentication-authorization.md) · [로그인 인증과 JWT 발급](./login-authentication-and-jwt-issuance.md) · [OAuth2 Resource Server](./oauth2-resource-server.md) · [인증 아키텍처](../../architecture/authentication.md)
 
-## 1. 왜 로그인과 별도의 인증 과정이 필요한가?
+## 1. 목적과 구현 범위
 
-Feature 2에서는 이메일·비밀번호가 맞는지 확인하고 JWT를 **발급**했다. Feature 3에서는 API 요청에 포함된 JWT를 **검증**하고, 그 요청을 인증된 사용자의 요청으로 처리한다.
-
-```text
-로그인 때: 이메일 + 비밀번호 → 인증 성공 → JWT 발급
-API 요청 때: Bearer JWT → 토큰 검증 → 현재 요청에 인증 정보 설정
-```
-
-**매 요청마다 이메일과 비밀번호를 다시 검사하는 것은 아니다.** 이전 로그인 결과를 바탕으로 발급된 토큰이 유효한지 확인한다.
-
-## 2. MyShelf의 JWT 요청 인증 흐름
+Feature 2는 이메일·비밀번호 인증 후 JWT를 **발급**한다. Feature 3은 클라이언트가 제출한 Bearer JWT를 **검증**하여 보호 API에서 인증된 사용자 정보를 사용할 수 있게 한다.
 
 ```text
-GET /test-only/principal
-Authorization: Bearer <JWT>
-   ↓
-Spring Security Filter Chain
-   ↓
-BearerTokenAuthenticationFilter      ← 헤더에서 Bearer 토큰 추출
-   ↓
-BearerTokenAuthenticationToken       ← 아직 검증되지 않은 인증 요청
-   ↓
-AuthenticationManager               ← JWT를 처리할 Provider로 위임
-   ↓
-JwtAuthenticationProvider           ← JWT 인증 담당
-   ↓
-JwtDecoder (NimbusJwtDecoder)       ← HS256 서명 및 Claims 검증
-   ↓
-JwtAuthenticationToken              ← 검증 성공 후의 인증 결과
-   ↓
-SecurityContextHolder               ← 현재 요청에서 사용할 인증 정보
-   ↓
-Controller                           ← Authentication.getName()으로 sub 확인
+로그인 성공 → JWT 발급 → 클라이언트 보관
+보호 API 요청(Authorization: Bearer <JWT>)
+  → Spring Security 인증 → 인가 판단 → Controller
 ```
 
-이는 일반적인 Spring Security Servlet Resource Server의 처리 흐름이다. **각 단계가 모두 사용자가 직접 작성한 코드인 것은 아니다.** MyShelf는 `JwtDecoder`와 Security Filter Chain 설정을 제공하고, 나머지 주요 연결은 Spring Security가 수행한다.
+- **Spring Security 재사용:** Bearer 토큰 추출, JWT 인증 Provider 연결, `Authentication` 생성과 `SecurityContext` 설정.
+- **MyShelf에서 구성:** 공유 Secret Key·HS256 Decoder, `sub` 형식 정책, 보호 경로 설정, 인증 실패 `ProblemDetail` 응답.
+- 매 요청마다 비밀번호나 DB 사용자를 재조회하지 않는다. JWT가 유효해도 **해당 UUID의 계정이 현재 DB에 존재하는지**까지 보장하지 않는다.
 
-### 단계별 역할
+필터 실행 순서와 인증(Authentication)·인가(Authorization)의 차이는 [별도 학습 문서](./spring-security-authentication-authorization.md)에서 다룬다.
 
-| 구성 요소 | 역할 |
+## 2. JWT 검증 설정과 정책
+
+### 검증 구성
+
+- `JwtConfig`: 발급·검증에 같은 `SecretKey`를 사용하며 `NimbusJwtDecoder`를 `HS256`으로 설정.
+- `JwtValidators.createDefaultWithValidators(subjectValidator)`: 기본 시간 검증을 유지하면서 MyShelf의 `sub` 형식 검증을 추가.
+- `SecurityConfig`: `STATELESS`, `POST /users`·`POST /auth/login`의 `permitAll()`, 나머지 요청의 `authenticated()`, OAuth2 Resource Server JWT 처리 및 사용자 정의 EntryPoint 연결.
+
+`setJwtValidator(subjectValidator)`만 사용하면 기본 검증을 **교체**할 수 있으므로, 현재처럼 `createDefaultWithValidators(...)`를 사용한다.
+
+### 검증 대상
+
+| 항목 | 현재 정책 |
 |---|---|
-| `SecurityFilterChain` | 어떤 요청이 인증되어야 하는지, 어떤 인증 기능을 사용할지 정한다. |
-| `BearerTokenAuthenticationFilter` | HTTP 요청에서 Bearer Token을 추출한다. |
-| `AuthenticationManager` | 해당 요청의 인증을 적합한 Provider로 위임한다. |
-| `JwtAuthenticationProvider` | `JwtDecoder`를 이용하여 JWT 인증을 수행한다. |
-| `JwtDecoder` | JWT 서명을 검증하고 필요한 Claims 유효성을 검사한다. |
-| `JwtAuthenticationToken` | 검증이 끝난 토큰에 대한 인증 결과를 표현한다. |
-| `SecurityContextHolder` | 현재 요청 처리 동안 인증 정보를 사용할 수 있게 한다. |
+| 서명 | HS256 및 MyShelf Secret Key로 검증. 다른 키로 서명한 토큰은 거부 |
+| `exp`, `nbf` | 기본 시간 검증 사용(기본 허용 오차 60초). 존재하는 값은 검사하지만 `exp` 존재 자체를 요구하는 별도 정책은 없음 |
+| `iat` | 발급 시각으로 사용. 미래 `iat` 등에 대한 모든 정책이 자동 검증되지는 않음 |
+| `sub` | **필수**. 정규식으로 표준 UUID 문자열 형식 검사 |
+| `iss`, `aud` | 현재 발급 토큰에는 없고 검증 정책도 별도로 지정하지 않음 |
 
-## 3. JWT 검증은 정확히 무엇을 하는가?
+`sub` 검사에 사용하는 정규식:
 
-MyShelf는 발급과 검증 모두 `HS256`을 사용하며, **같은 Secret Key**를 사용한다.
+```regex
+[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}
+```
 
-### 서명 검증
+이 규칙은 16진수 `8-4-4-4-12` 자릿수와 하이픈 위치만 확인한다. UUID **버전**과 DB의 **사용자 존재 여부**는 확인하지 않는다. `sub`가 누락되면 `JwtClaimValidator`가 검증 실패를 반환한다. `invalid-user-id`와 축약 표현 `1-1-1-1-1`도 거부한다.
 
-토큰 서명이 해당 키로 만들어진 서명과 일치하는지 확인한다. 다른 키로 서명했거나 내용이 변조되었다면 인증에 실패한다.
+> 학습 메모: 기존 `UUID.fromString(subject).toString().equalsIgnoreCase(subject)`도 표준 표현을 확인할 수 있지만, `fromString()`은 일부 축약 표현을 변환할 수 있다. 현재 코드는 정규식으로 요구 형식을 직접 표현한다.
 
-### Claims 검증
+### 시간 검증 시 주의
 
-| 항목 | 의미 | MyShelf에서 주의할 점 |
-|---|---|---|
-| `exp` | 만료 시각 | 만료된 토큰은 거부해야 한다. |
-| `nbf` | 사용 시작 가능 시각 | 토큰에 있는 경우 관련 시간 검증 대상이다. |
-| `iat` | 발급 시각 | 기록된다고 해서 미래 시각 등의 정책이 자동으로 모두 검증되는 것은 아니다. |
-| `sub` | 사용자 식별자 | MyShelf는 UUID 문자열을 사용하나, 올바른 UUID인지 여부는 별도 검증 정책이 필요하다. |
-| `iss`, `aud` | 발급자, 수신 대상 | 현재 MyShelf 토큰에 없으며, 해당 값을 검사하려면 발급·검증 정책을 함께 정해야 한다. |
+만료 테스트는 **정상 키로 서명**하면서 `iat`는 30분 전, `exp`는 5분 전으로 설정했다. 기본 60초 허용 오차를 넘겨 만료로 거부되는지 확인하기 위해서다.
 
-> 일반적인 `JwtDecoder`의 기본 검증은 서명과 표준적인 시간 조건에 집중한다. 정확한 검증 범위는 등록한 `JwtDecoder`와 Validator 설정에 따라 결정된다. 만료 시각 검증에는 허용 시간 오차가 적용될 수도 있다.
+발급 측 `JwtAccessTokenAdapter`는 `JwtConfig`에 등록된 `Clock`을 주입받아 사용하지만, 운영 Decoder의 기본 시간 검증은 그 `Clock`을 자동으로 공유하지 않는다. 고정 시간을 이용하는 별도 발급 테스트에서는 시간 기준을 일치시켜야 한다.
 
-**토큰이 유효하다 ≠ 현재 토큰을 보낸 사람이 원래 계정 소유자라는 것이 별도로 증명된다.** 일반적인 Bearer Token은 탈취되면 만료되기 전까지 악용될 수 있다. HTTPS와 안전한 토큰 보관이 중요한 이유다.
+## 3. 인증 성공 결과와 책임 경계
 
-## 4. 무엇을 직접 구현했고, 무엇을 재사용했는가?
+Spring Security의 기본 JWT 인증에서 `Authentication.getName()`은 일반적으로 `sub` 문자열이다. 테스트 전용 `GET /test-only/principal`은 실제 로그인 JWT로 요청했을 때 사용자 UUID와 일치하는 값을 반환한다.
 
-### MyShelf에서 구성한 부분
+추후 서재 API에서는 **웹 어댑터가 인증된 사용자 UUID를 추출해 유스케이스에 전달**하면 된다. Application/Domain이 `Jwt`, `Authentication`, `SecurityContextHolder`를 직접 알 필요는 없다.
 
-- `JwtConfig`: 발급과 검증에서 동일한 키를 쓰는 `SecretKey` 구성 및 HS256 `JwtDecoder` Bean 등록
-- `SecurityConfig`: 보호 API에 인증 요구, `STATELESS`, `oauth2ResourceServer(oauth2 -> oauth2.jwt(Customizer.withDefaults()))` 설정
-- 로그인 및 JWT 발급: Feature 2의 기존 구현 재사용
+JWT 인증 성공과 **책의 소유권 확인**은 다르다. 다른 사용자의 서재 데이터 접근 제어는 서재 기능에서 별도로 구현해야 한다.
 
-### Spring Security에서 제공하는 부분
+## 4. 인증 실패 응답 — MyShelf 구현
 
-- Bearer Token 추출
-- 인증용 토큰 생성 및 `AuthenticationManager` 호출
-- JWT 검증 Provider 연결
-- 검증 결과를 `Authentication`으로 변환
-- `SecurityContext`에 인증 결과 설정
-- 인증 실패에 대한 기본 HTTP 응답 처리
+필터 단계의 인증 실패는 MVC `LoginControllerAdvice`로 자동 전달되지 않는다. `ProblemDetailAuthenticationEntryPoint`는 기본 `BearerTokenAuthenticationEntryPoint`에 상태 코드 및 `WWW-Authenticate` 헤더 설정을 위임한 뒤 `application/problem+json` 본문을 기록한다.
 
-**OAuth2 Resource Server를 사용한다고 외부 Google 로그인, OIDC, 별도 OAuth 인증 서버를 도입하는 것은 아니다.** MyShelf에서는 기존에 직접 발급한 JWT를 검증하는 표준 컴포넌트를 재사용한다.
+```json
+{
+  "type": "about:blank",
+  "title": "Auth Error",
+  "status": 401,
+  "detail": "인증 정보가 없거나 유효하지 않습니다.",
+  "code": "AUTHENTICATION_FAILED"
+}
+```
 
-## 5. 로그인 때와 무엇이 다른가?
+- 보호 API에 토큰이 없는 경우와 JWT가 만료·변조된 경우는 **401이라는 결과는 같아도 실패 경로가 다르다**.
+- 로그인 자격 증명 실패는 기존 Advice의 `INVALID_CREDENTIALS`로 별도 처리한다.
+- `WWW-Authenticate`의 실제 값은 요청과 Spring Security 버전에 따라 달라질 수 있으므로 테스트에서는 헤더 존재를 검사한다.
+- 기본 EntryPoint가 잘못된 Bearer 요청 형식 등을 이유로 400을 설정하면 현재 구현은 이를 무조건 401로 덮어쓰지 않는다.
+- 403(인증된 사용자에게 권한 부족)은 별도의 인가 실패 상황이며, 현재 사용자별 권한 정책의 테스트 대상은 아니다.
 
-| 비교 | Feature 2 로그인 | Feature 3 API 요청 |
-|---|---|---|
-| 시작 지점 | `LoginController`가 유스케이스 호출 | 보안 필터가 요청을 먼저 검사 |
-| 제출하는 증명 | 이메일·비밀번호 | Bearer JWT |
-| 인증 Provider | `DaoAuthenticationProvider` | `JwtAuthenticationProvider` |
-| 실제 확인 대상 | 사용자 조회 + 비밀번호 일치 | JWT 서명 + 설정된 Claims 조건 |
-| 인증 성공 뒤 | `AuthService`가 JWT 발급 | 요청의 `SecurityContext`에 인증 결과 설정 |
-| 결과 | 토큰을 클라이언트에 반환 | 보호 API 실행 가능 |
+실패 경로, `ExceptionTranslationFilter`, `AuthenticationEntryPoint.commence()`의 의미는 [Spring Security 인증·인가 구조](./spring-security-authentication-authorization.md)를 참고한다.
 
-**공통점:** 두 과정 모두 `AuthenticationManager`와 `AuthenticationProvider`라는 Spring Security 인증 구조를 활용한다.
+## 5. 통합 테스트에서 검증한 것
 
-**차이점:** 인증에 사용되는 자격 증명과 Provider, 인증 성공 뒤 수행하는 일이 다르다.
-
-## 6. 인증된 사용자 UUID는 어디서 얻는가?
-
-현재 JWT의 `sub`에는 사용자 UUID 문자열이 담겨 있다.
-
-Resource Server의 기본 JWT 인증에서는 `Authentication.getName()`이 보통 `sub` 문자열을 반환한다. 실제 통합 테스트에서 `GET /test-only/principal`의 반환값과 사용자 UUID가 일치함을 확인했다.
-
-향후 업무 API에서는 웹 어댑터에서 인증된 UUID를 얻어 유스케이스에 전달한다. **Application/Domain 계층이 `Jwt`, `Authentication`, `SecurityContextHolder`에 의존하도록 만들 필요는 없다.**
-
-또한 현재 구성은 서명과 시간 조건을 검사할 뿐, 토큰 소유자의 계정이 DB에 여전히 존재하는지 매번 조회하지 않는다. 로그인 상태와 별개로 **책의 소유권을 확인하는 인가**는 서재 기능에서 구현해야 한다.
-
-## 7. 인증 실패하면 어떻게 되는가?
-
-| 요청 | 기본 결과 | 이유 |
-|---|---|---|
-| 보호 API에 JWT 없이 요청 | HTTP 401 | 인증되지 않은 요청 |
-| 다른 키로 서명한 JWT 전달 | HTTP 401 | 서명 검증 실패 |
-| 만료된 JWT 전달 | HTTP 401 예상 | 만료 조건 위반 — 별도 테스트로 확인 예정 |
-| 정상 JWT 전달 | HTTP 200 (테스트 API 기준) | 토큰 인증 성공 |
-| 인증은 됐으나 별도의 접근 권한 부족 | HTTP 403 | 인가 실패; 관련 권한 규칙 도입 시 검증 |
-| 로그인·회원가입 API에 Bearer 토큰 없이 요청 | Controller 실행 | `permitAll()`이므로 인증 없이 접근 가능 |
-| 로그인 API에 잘못된 Bearer 토큰 첨부 | HTTP 401 | `permitAll()` 평가 전에 JWT 인증 실패 |
-
-기본 `BearerTokenAuthenticationEntryPoint`는 401과 `WWW-Authenticate` 응답 헤더를 제공한다. **기본 설정만으로 기존 `LoginControllerAdvice`의 `ProblemDetail` JSON이 자동 생성되지는 않는다.** 필터에서 일어난 실패는 Controller 예외 처리와 경로가 다르기 때문이다.
-
-`WWW-Authenticate` 값은 Spring Security 버전 및 요청에 따라 단순 `Bearer`보다 긴 문자열일 수 있다. 테스트에서는 우선 헤더의 존재를 확인하고 실제 값을 관찰한다.
-
-`permitAll()`은 인증 없는 접근을 허용하는 규칙이지, 명시적으로 첨부한 잘못된 Bearer 토큰의 검증까지 건너뛰라는 뜻은 아니다.
-
-### `permitAll()`과 Bearer Token 인증의 관계
-
-`permitAll()`은 토큰이 없어도 접근할 수 있다는 인가 규칙이지,
-토큰이 없어야 한다는 제약조건이 아니다.
-
-Spring Security의 `BearerTokenAuthenticationFilter`는
-`AuthorizationFilter`가 인가 규칙을 평가하기 전에 실행된다.
-
-따라서 공개 API에서도 다음과 같이 동작한다.
-
-- Bearer Token 없음: JWT 인증을 시도하지 않고 Controller까지 진행
-- 유효한 Bearer Token: 인증 성공 후 Controller까지 진행
-- 유효하지 않은 Bearer Token: 인증 실패로 401 반환
-
-로그인·회원가입 요청에는 토큰을 금지하는 검사가 별도로 존재하지 않는다.
-
-## 8. 작성한 통합 테스트가 검증한 범위
-
-사용자가 작성·실행한 `JwtRequestAuthenticationIntegrationTest`의 세 테스트는 모두 통과했다고 보고되었다.
+2026-10-23 기준 `JwtRequestAuthenticationIntegrationTest`: **7개 테스트 메서드, 총 8개 실행 사례 통과**. 잘못된 UUID `sub` 테스트를 두 입력으로 실행한다. PostgreSQL 테스트 환경과 Spring Security 필터를 포함한 `MockMvc` 통합 테스트다. **프로젝트 전체 테스트 40건 및 로컬 전체 빌드도 통과**했다(개발 환경에서 확인한 결과).
 
 | 테스트 | 검증되는 사실 | 검증하지 않는 사실 |
 |---|---|---|
-| 토큰 없이 요청 → 401 | 보호 경로가 미인증 요청을 거부한다. | `JwtDecoder`가 서명을 검증하는지까지는 알 수 없다. |
-| 다른 Secret Key로 서명한 토큰 → 401 | 실제 Bearer 요청이 서명 검증에 실패한다. | 만료 및 UUID 형식 검증까지 증명하지는 않는다. |
-| 실제 로그인 JWT → 200 + UUID | 로그인 → 발급 → 검증 → Controller까지 연결된다. | 사용자별 도서 접근 권한 검증은 하지 않는다. |
-| 로그인 API에 잘못된 Bearer Token 첨부 → 401 | `permitAll()` 경로에서도 잘못된 Bearer Token이 거부된다. | Controller 미실행 여부나 정상 Bearer Token 첨부 시 동작까지 직접 증명하지는 않는다. |
+| 보호 API, 토큰 없음 → 401 | 인증되지 않은 접근이 거부됨 | JWT 서명 검증 동작 자체 |
+| 다른 Secret Key 서명 → 401 | 서명이 다른 토큰이 거부됨 | 만료·UUID 검증 |
+| 실제 로그인 JWT → 200 + UUID | 로그인·발급·검증·Controller 연결 | 사용자별 도서 접근 권한 |
+| 로그인 API + 잘못된 Bearer 토큰 → 401 | `permitAll()` 경로에서도 잘못된 토큰 거부 | Controller 미실행 여부 자체를 직접 단언한 것은 아님 |
+| 정상 키로 서명한 만료 JWT → 401 | Decoder 만료 오류 및 HTTP 거부 | 60초 허용 오차의 정확한 경계 |
+| `sub=invalid-user-id` → 401 | 잘못된 UUID 문자열 거부 | 사용자 존재 여부 |
+| `sub=1-1-1-1-1` → 401 | 축약 표현을 거부하고 표준 자릿수 요구 | UUID 버전 제한 |
+| `sub` 누락 → 401 | 필수 사용자 식별자 누락 거부 | 다른 Claim의 필수 여부 |
 
-이 테스트는 `MockMvc`로 실제 Spring Security 필터를 거치므로 **통합 테스트**다. 내부 메서드 호출 순서를 단정하기보다, 입력된 HTTP 요청에 대해 시스템이 어떤 결과를 내는지 검증한다.
+테스트 설계 참고:
 
-- `@AutoConfigureMockMvc`에서 필터를 비활성화하지 않아야 한다.
-- `jwt()` 테스트 후처리기만 사용하면 실제 JWT 문자열의 Decoder 검증까지 확인하는 테스트가 되지 않는다.
-- 테스트용 보호 Controller는 `@TestConfiguration`으로 운영 API와 분리한다.
+- 401 응답은 `unauthorizedProblemDetail()`로 상태 코드, 인증 헤더, Content-Type, JSON의 `status`·`title`·`code`를 공통 검증한다.
+- 만료 테스트는 실제 `JwtEncoder`와 `JwtDecoder`를 사용하고 `JwtValidationException`의 만료 메시지도 확인한다. 메시지 단언은 프레임워크 버전에 민감할 수 있다.
+- `print()`는 인증 토큰이 로그에 노출될 수 있어 제거했다.
+- 공개 API의 무토큰 접근은 기존 `LoginIntegrationTest`, `UserSignUpIntegrationTest`에서 확인하므로 중복하지 않았다.
+- `MockMvc`가 실제 필터를 통과하도록 유지한다. `jwt()` 테스트 후처리기만 사용하면 실제 토큰 서명·Decoder 검증을 검증하지 못한다.
+- 보호 API는 아직 없어서 `@TestConfiguration`의 테스트 전용 Controller를 사용한다.
 
-## 9. 다음 검증과 학습 계획
+**통합 테스트는 내부 메서드 호출 순서보다 HTTP 요청부터 최종 응답까지의 동작을 검증한다.**
 
-**기능 검증 보완**
+## 6. Feature 3 마무리 확인
 
-1. 서명은 유효하지만 만료된 JWT가 거부되는지 검증한다.
-2. 공개 API의 비인증 요청이 계속 허용되는지 확인한다.
-3. `sub`가 없거나 UUID 형식이 잘못되었을 때의 정책을 정하고 검증한다.
-4. 인증 실패 응답을 기존 `ProblemDetail`과 통일할지 결정한다.
-5. 전체 테스트와 CI를 확인한다.
+- [x] 기존 회원가입·로그인을 포함한 전체 회귀 테스트: 전체 40건 통과
+- [x] 로컬 전체 빌드 성공(Spotless 검사 포함)
+- [ ] 변경 사항 최종 리뷰, Draft PR 생성 및 GitHub Actions CI 확인
 
-**디버거로 이해할 흐름**
-
-1. `BearerTokenAuthenticationFilter`: 헤더에서 무엇을 꺼내는가?
-2. `JwtAuthenticationProvider` → `JwtDecoder`: 인증 요청이 어디서 검증되는가?
-3. `JwtAuthenticationToken`: 어떤 Principal이 만들어지는가?
-4. `SecurityContextHolder`: Controller가 인증 정보를 어떻게 받는가?
+**로컬 검증 완료와 GitHub Actions CI 통과는 별개**다. CI 결과는 PR 생성 후 확인한다.
 
 ## 참고 자료
 
-- [Spring Security — OAuth 2.0 Resource Server](https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/index.html)
-- [Spring Security — Resource Server JWT](https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html)
-- [Spring Security — Servlet Authentication Architecture](https://docs.spring.io/spring-security/reference/servlet/authentication/architecture.html)
+- [Spring Security — OAuth2 Resource Server](https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/index.html)
+- [Spring Security — JWT Resource Server](https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html)
 
-> 이 문서는 공유된 MyShelf 코드 분석 및 사용자가 보고한 통합 테스트 결과를 바탕으로 작성했다. 최신 저장소 전체나 테스트 로그를 직접 조회한 것은 아니므로 향후 설정 변경 시 함께 갱신한다.
+> 이 문서는 공유된 구현·테스트 결과 및 로컬 전체 빌드 성공 보고를 반영했다. GitHub Actions CI 통과는 아직 확인되지 않았다.
