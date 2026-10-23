@@ -126,6 +126,24 @@ public class JwtRequestAuthenticationIntegrationTest {
 
   private record LoginRequestBody(String email, String password) {}
 
+  @Test
+  void loginWithInvalidBearerTokenIsRejectedBeforeController() throws Exception {
+    mockMvc
+        .perform(
+            post("/auth/login")
+                .header(HttpHeaders.AUTHORIZATION, "Bearer Invalid.jwt.token")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                                    {
+                                      "email": "test@example.com",
+                                      "password: "wrong-password"
+                                    }
+                                    """))
+        .andExpect(status().isUnauthorized())
+        .andExpect(header().exists(HttpHeaders.WWW_AUTHENTICATE));
+  }
+
   // 아직 보호된 비즈니스 API가 없어 테스트 전용 엔드포인트로 SecurityFilterChain을 검증.
   @TestConfiguration
   static class ProtectedProbeConfig {

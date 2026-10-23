@@ -17,6 +17,25 @@
 
 ## 2. MyShelf의 실제 로그인 흐름
 
+로그인 요청도 `SecurityFilterChain`을 통과한다. `permitAll()`은 **토큰 없이도 접근할 수 있다**는 인가 규칙이지, 토큰이 없어야 한다는 검사는 아니다. 현재 설정에서는 다음과 같이 동작한다.
+
+```text
+POST /auth/login
+   ↓
+SecurityFilterChain
+   ↓
+BearerTokenAuthenticationFilter
+   ├─ Bearer Token 없음 → JWT 인증 시도 없이 계속 진행
+   ├─ 유효한 Bearer Token → JWT 인증 성공 후 계속 진행
+   └─ 유효하지 않은 Bearer Token → 401 (Controller에 도달하지 않음)
+   ↓
+AuthorizationFilter: permitAll()
+   ↓
+LoginController
+```
+
+`LoginController`에 도달한 이후의 **이메일·비밀번호 인증 및 JWT 발급 흐름**은 다음과 같다.
+
 ```text
 POST /auth/login (이메일 + 비밀번호)
    ↓
@@ -127,6 +146,15 @@ Authorization: Bearer <access-token>
 
 이 **로그인 실패 처리 경로**는 Resource Server의 **JWT 요청 인증 실패 처리 경로**와 다르다. 따라서 두 경로의 오류 응답이 자동으로 같은 형식이 되지는 않는다.
 
+### 로그인 요청에서 발생할 수 있는 두 종류의 인증 실패
+
+| 실패 상황 | 발생 위치 | 응답 처리 |
+|---|---|---|
+| 이메일·비밀번호가 일치하지 않음 | `LoginController` 진입 후 로그인 처리 과정 | `LoginControllerAdvice`가 HTTP 401과 `ProblemDetail` 반환 |
+| 잘못된 Bearer Token을 요청에 첨부 | Controller 진입 전 `BearerTokenAuthenticationFilter` | 기본 `BearerTokenAuthenticationEntryPoint`가 HTTP 401과 `WWW-Authenticate` 헤더 반환 |
+
+로그인 API는 **Bearer Token이 없어도 접근할 수 있다.** 반대로 Bearer Token이 명시적으로 첨부되면 인증 필터가 이를 검증하며, 잘못된 토큰은 `permitAll()`이 적용된 로그인 경로에서도 거부될 수 있다.
+
 ## 7. 코드와 테스트를 통해 확인할 지점
 
 **관련 코드**
@@ -144,6 +172,7 @@ Authorization: Bearer <access-token>
 - `SpringSecurityAuthenticationAdapterTest`: 실제 사용자 인증 어댑터 동작
 - `JwtAccessTokenAdapterTest`: 발급 토큰의 서명, `sub`·`iat`·`exp`
 - `LoginIntegrationTest`: 실제 로그인 API의 성공/실패 흐름
+- `JwtRequestAuthenticationIntegrationTest`: 로그인 API에 잘못된 Bearer Token을 첨부할 때 401과 `WWW-Authenticate` 헤더가 반환되는지 확인 (Controller 미실행 여부 자체를 단언하는 테스트는 아님)
 
 **디버거로 따라가 보기**
 

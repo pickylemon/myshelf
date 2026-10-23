@@ -106,7 +106,9 @@ MyShelf는 발급과 검증 모두 `HS256`을 사용하며, **같은 Secret Key*
 | 인증 성공 뒤 | `AuthService`가 JWT 발급 | 요청의 `SecurityContext`에 인증 결과 설정 |
 | 결과 | 토큰을 클라이언트에 반환 | 보호 API 실행 가능 |
 
-**공통점:** 두 과정 모두 `AuthenticationManager`와 `AuthenticationProvider`라는 Spring Security 인증 구조를 활용한다. **차이점:** 인증에 사용되는 자격 증명과 Provider, 인증 성공 뒤 수행하는 일이 다르다.
+**공통점:** 두 과정 모두 `AuthenticationManager`와 `AuthenticationProvider`라는 Spring Security 인증 구조를 활용한다.
+
+**차이점:** 인증에 사용되는 자격 증명과 Provider, 인증 성공 뒤 수행하는 일이 다르다.
 
 ## 6. 인증된 사용자 UUID는 어디서 얻는가?
 
@@ -127,12 +129,30 @@ Resource Server의 기본 JWT 인증에서는 `Authentication.getName()`이 보�
 | 만료된 JWT 전달 | HTTP 401 예상 | 만료 조건 위반 — 별도 테스트로 확인 예정 |
 | 정상 JWT 전달 | HTTP 200 (테스트 API 기준) | 토큰 인증 성공 |
 | 인증은 됐으나 별도의 접근 권한 부족 | HTTP 403 | 인가 실패; 관련 권한 규칙 도입 시 검증 |
+| 로그인·회원가입 API에 Bearer 토큰 없이 요청 | Controller 실행 | `permitAll()`이므로 인증 없이 접근 가능 |
+| 로그인 API에 잘못된 Bearer 토큰 첨부 | HTTP 401 | `permitAll()` 평가 전에 JWT 인증 실패 |
 
 기본 `BearerTokenAuthenticationEntryPoint`는 401과 `WWW-Authenticate` 응답 헤더를 제공한다. **기본 설정만으로 기존 `LoginControllerAdvice`의 `ProblemDetail` JSON이 자동 생성되지는 않는다.** 필터에서 일어난 실패는 Controller 예외 처리와 경로가 다르기 때문이다.
 
 `WWW-Authenticate` 값은 Spring Security 버전 및 요청에 따라 단순 `Bearer`보다 긴 문자열일 수 있다. 테스트에서는 우선 헤더의 존재를 확인하고 실제 값을 관찰한다.
 
 `permitAll()`은 인증 없는 접근을 허용하는 규칙이지, 명시적으로 첨부한 잘못된 Bearer 토큰의 검증까지 건너뛰라는 뜻은 아니다.
+
+### `permitAll()`과 Bearer Token 인증의 관계
+
+`permitAll()`은 토큰이 없어도 접근할 수 있다는 인가 규칙이지,
+토큰이 없어야 한다는 제약조건이 아니다.
+
+Spring Security의 `BearerTokenAuthenticationFilter`는
+`AuthorizationFilter`가 인가 규칙을 평가하기 전에 실행된다.
+
+따라서 공개 API에서도 다음과 같이 동작한다.
+
+- Bearer Token 없음: JWT 인증을 시도하지 않고 Controller까지 진행
+- 유효한 Bearer Token: 인증 성공 후 Controller까지 진행
+- 유효하지 않은 Bearer Token: 인증 실패로 401 반환
+
+로그인·회원가입 요청에는 토큰을 금지하는 검사가 별도로 존재하지 않는다.
 
 ## 8. 작성한 통합 테스트가 검증한 범위
 
@@ -143,6 +163,7 @@ Resource Server의 기본 JWT 인증에서는 `Authentication.getName()`이 보�
 | 토큰 없이 요청 → 401 | 보호 경로가 미인증 요청을 거부한다. | `JwtDecoder`가 서명을 검증하는지까지는 알 수 없다. |
 | 다른 Secret Key로 서명한 토큰 → 401 | 실제 Bearer 요청이 서명 검증에 실패한다. | 만료 및 UUID 형식 검증까지 증명하지는 않는다. |
 | 실제 로그인 JWT → 200 + UUID | 로그인 → 발급 → 검증 → Controller까지 연결된다. | 사용자별 도서 접근 권한 검증은 하지 않는다. |
+| 로그인 API에 잘못된 Bearer Token 첨부 → 401 | `permitAll()` 경로에서도 잘못된 Bearer Token이 거부된다. | Controller 미실행 여부나 정상 Bearer Token 첨부 시 동작까지 직접 증명하지는 않는다. |
 
 이 테스트는 `MockMvc`로 실제 Spring Security 필터를 거치므로 **통합 테스트**다. 내부 메서드 호출 순서를 단정하기보다, 입력된 HTTP 요청에 대해 시스템이 어떤 결과를 내는지 검증한다.
 
