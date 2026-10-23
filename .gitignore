@@ -38,8 +38,5 @@ logs/
 .agents/
 .agent/
 
-CLAUDE.md
-AGENTS.md
-
 ### ETC
 compose.verify.yaml
