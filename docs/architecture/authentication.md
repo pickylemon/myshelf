@@ -11,6 +11,8 @@ MyShelf의 인증 기능은 `auth` feature를 중심으로 구성한다.
 3. 입력한 비밀번호와 저장된 비밀번호를 비교한다.
 4. 인증에 성공하면 JWT Access Token을 발급한다.
 5. 발급된 Access Token을 HTTP 응답으로 반환한다.
+6. 이후 API 요청의 Bearer JWT를 Resource Server가 검증한다.
+7. 검증된 인증 정보를 현재 요청의 SecurityContext에 설정하고 접근 정책을 적용한다.
 
 로그인 과정에서 `auth`는 사용자 저장소나 JPA 구현에 직접 접근하지 않는다.
 
@@ -26,6 +28,8 @@ MyShelf의 인증 기능은 `auth` feature를 중심으로 구성한다.
 auth/
 ├── adapter/
 │   ├── in/
+│   │   ├── security/
+│   │   │   └── ProblemDetailAuthenticationEntryPoint
 │   │   └── web/
 │   │       ├── LoginController
 │   │       ├── LoginRequest
@@ -80,7 +84,7 @@ user/
 
 ## 3. 로그인 요청 흐름
 
-로그인 API는 다음 흐름으로 처리한다.
+아래는 보안 필터를 통과해 Controller에 도달한 로그인 요청의 흐름이다. 로그인은 `permitAll()` 경로이지만, 잘못된 Bearer 토큰이 첨부되면 Controller에 도달하기 전에 인증 실패로 응답한다.
 
 ```text
 POST /auth/login
@@ -277,7 +281,7 @@ DaoAuthenticationProvider
 
 `SpringSecurityAuthenticationAdapter`는 `UsernamePasswordAuthenticationToken`을 만들어 `AuthenticationManager.authenticate()`를 호출할 뿐, 조회나 비교 로직을 직접 구현하지 않는다. 실제 조회는 `UserDetailsServiceAdapter`(→ `FindUserByEmailUseCase`)가, 실제 비교는 `DaoAuthenticationProvider`가 `SecurityConfig`에 등록된 `PasswordEncoder` Bean으로 수행한다.
 
-`SecurityConfig`는 `PasswordEncoder` Bean과, `AuthenticationConfiguration#getAuthenticationManager()`를 감싼 `AuthenticationManager` Bean만 노출한다. `DaoAuthenticationProvider`는 별도로 Bean을 만들지 않는다 — 컨텍스트에 `UserDetailsService` Bean(`UserDetailsServiceAdapter`)과 `PasswordEncoder` Bean이 각각 하나씩만 있으면, Spring Security가 `AuthenticationManager`를 구성하는 과정에서 자동으로 `DaoAuthenticationProvider`를 만들어 연결한다.
+로그인 인증을 위해 `SecurityConfig`는 `PasswordEncoder` Bean과, `AuthenticationConfiguration#getAuthenticationManager()`를 감싼 `AuthenticationManager` Bean을 노출한다. `DaoAuthenticationProvider`는 별도로 Bean을 만들지 않는다 — 컨텍스트에 `UserDetailsService` Bean(`UserDetailsServiceAdapter`)과 `PasswordEncoder` Bean이 각각 하나씩만 있으면, Spring Security가 `AuthenticationManager`를 구성하는 과정에서 자동으로 `DaoAuthenticationProvider`를 만들어 연결한다. JWT 요청 인증은 같은 클래스의 `SecurityFilterChain`에서 Resource Server로 별도 구성한다.
 
 이전에는 `user`의 `PasswordEncoderPort`와 별개로 `auth`가 자체 `PasswordMatcherPort`/`BCryptPasswordMatcherAdapter`를 두고 비밀번호 비교를 직접 구현했다. 지금은 이 직접 구현을 제거하고 `DaoAuthenticationProvider`가 제공하는 비교 로직을 그대로 사용한다 — 존재하지 않는 사용자에 대해서도 동일한 시간이 걸리도록 dummy password와 비교하는 타이밍 공격 방어까지 포함해서, 직접 구현하는 것보다 검증된 방식을 그대로 재사용하는 쪽을 선택했다. 자세한 내용은 7절 참고.
 
@@ -323,6 +327,13 @@ LoginControllerAdvice가 401로 변환
 
 예외는 문제가 발견된 기술적 위치가 아니라,
 현재 수행 중인 Use Case에서의 의미를 기준으로 처리한다.
+
+JWT 요청 인증 실패는 MVC의 `LoginControllerAdvice`가 아닌 `ProblemDetailAuthenticationEntryPoint`가 처리한다. 기본 `BearerTokenAuthenticationEntryPoint`에 상태 코드와 `WWW-Authenticate` 헤더 설정을 위임한 뒤, `application/problem+json` 본문을 작성한다.
+
+- 로그인 자격 증명 실패: `INVALID_CREDENTIALS`
+- 토큰 없음 또는 유효하지 않은 토큰: `AUTHENTICATION_FAILED`
+
+두 경로 모두 `title`은 `Auth Error`이고, `status`, `detail`, `code`를 포함하는 ProblemDetail 형식을 사용한다. 본문의 `status`는 기본 EntryPoint가 설정한 HTTP 상태와 일치시킨다. 현재 통합 테스트의 미인증·잘못된 JWT 사례는 모두 401이며, 잘못된 Bearer 요청 형식 등에서 기본 처리기가 선택하는 다른 상태 코드도 유지한다.
 
 ---
 
@@ -393,7 +404,7 @@ JwtProperties
 JWT Secret은 소스 코드나 `application.yml`에 직접 저장하지 않고
 환경변수 `JWT_SECRET`을 통해 주입한다.
 
-`JwtConfig`는 설정값을 사용해 Spring Security의 `JwtEncoder` Bean을 생성한다.
+`JwtConfig`는 설정값으로 공용 `SecretKey` Bean을 만들고, 이를 Spring Security의 `JwtEncoder`와 `JwtDecoder`에 주입한다. Base64 디코딩 결과는 최소 32바이트여야 하며 발급·검증 모두 HS256을 사용한다.
 
 ```text
 JWT_SECRET
@@ -401,10 +412,8 @@ JWT_SECRET
 JwtProperties
     ↓
 SecretKey
-    ↓
-NimbusJwtEncoder
-    ↓
-JwtEncoder Bean
+    ├── NimbusJwtEncoder → JwtEncoder Bean
+    └── NimbusJwtDecoder → JwtDecoder Bean
 ```
 
 실제 Access Token 생성은 `JwtConfig`가 아닌 `JwtAccessTokenAdapter`가 담당한다.
@@ -416,11 +425,15 @@ JwtProperties
 → JWT 설정값 표현
 
 JwtConfig
-→ JWT 발급에 필요한 기술 객체 구성
+→ JWT 발급·검증에 필요한 키, Encoder, Decoder와 발급 시각용 Clock 구성
 
 JwtAccessTokenAdapter
 → 실제 Access Token 발급
 ```
+
+Decoder에는 `JwtValidators.createDefaultWithValidators(subjectValidator)`를 적용한다. 기본 검증을 유지하면서 `sub`를 필수로 요구하고, 정규식으로 16진수 `8-4-4-4-12` UUID 문자열 형식을 검사한다. 대소문자는 허용하고 축약 표현은 거부한다. UUID 버전과 사용자 DB 존재 여부는 검사하지 않는다.
+
+기본 시간 검증은 존재하는 `exp`·`nbf`에 60초의 허용 오차를 적용한다. `exp` 존재 자체를 강제하거나 미래 `iat`를 별도로 검증하는 설정은 추가하지 않았다. 발급은 주입된 `Clock`을 사용하고, Decoder의 기본 시간 검증은 자체 시스템 UTC Clock을 사용한다.
 
 ---
 
@@ -485,6 +498,10 @@ POST /auth/login
 
 그 외 요청은 기본적으로 인증이 필요하도록 유지한다.
 
+`POST /users`도 회원가입을 위해 공개한다. `STATELESS`로 인증을 HTTP 세션에 저장하지 않으며, Authorization 헤더 기반 API이므로 CSRF를 비활성화한다.
+
+`oauth2ResourceServer(...jwt(...).authenticationEntryPoint(...))`로 Decoder와 사용자 정의 EntryPoint를 연결한다. `permitAll()`은 인가 규칙이므로 인증 필터를 생략하지 않는다. 공개 API라도 Bearer JWT를 첨부하면 검증 대상이다.
+
 ---
 
 ## 12. 현재 범위
@@ -498,9 +515,12 @@ POST /auth/login
 - 인증 실패 처리
 - JWT Access Token 발급
 - Access Token HTTP 응답
+- Bearer JWT 요청 인증 및 SecurityContext 설정
+- JWT 서명·만료 검증과 sub UUID 형식 검증
+- 필터 인증 실패의 ProblemDetail 응답
 ```
 
-다음 기능은 현재 로그인 및 Access Token 발급 범위에 포함하지 않는다.
+다음 기능은 현재 인증 기능 범위에 포함하지 않는다.
 
 ```text
 - Refresh Token
@@ -512,23 +532,29 @@ POST /auth/login
 
 JWT를 이용한 요청 인증은 Access Token 발급과 별도의 관심사로 본다.
 
-향후 인증이 필요한 API에서는 다음 흐름이 추가될 수 있다.
+현재 인증이 필요한 API 요청에는 다음 흐름을 적용한다.
 
 ```text
 Authorization: Bearer <access-token>
         ↓
-Spring Security Resource Server
+BearerTokenAuthenticationFilter
         ↓
-JwtDecoder
+AuthenticationManager → JwtAuthenticationProvider
         ↓
-JWT 서명 및 만료 검증
+JwtDecoder: 서명·시간·sub UUID 형식 검증
         ↓
-Authentication 생성
+JwtAuthenticationToken 생성
         ↓
 SecurityContext
         ↓
-보호된 API 접근
+AuthorizationFilter: 접근 정책 확인
+        ↓
+Controller
 ```
+
+아직 인증이 필요한 업무 API는 없으므로, `JwtRequestAuthenticationIntegrationTest`의 테스트 전용 Controller로 인증 정보 전달까지 확인한다. 요청 인증을 위한 application 포트나 사용자 정의 JWT 필터는 추가하지 않았다.
+
+2026-10-23에 해당 테스트 클래스를 실행해 7개 테스트 메서드의 총 8개 실행 사례가 모두 통과했다. 토큰 없음, 다른 키 서명, 실제 로그인 JWT, 공개 로그인 경로의 잘못된 JWT, 만료, 잘못된 UUID 두 사례, sub 누락을 확인한다. 모든 401 사례에서 공통 ProblemDetail 계약과 인증 헤더를 검증한다. 전체 회귀 테스트·Spotless·전체 빌드·CI는 최종 검증에서 별도로 확인한다.
 
 ---
 
@@ -537,7 +563,7 @@ SecurityContext
 현재 인증 구조는 다음 원칙을 따른다.
 
 ```text
-1. auth는 로그인 흐름을 담당한다.
+1. auth는 로그인과 JWT 요청 인증 구성을 담당한다.
 
 2. 사용자 데이터의 조회 책임은 user가 가진다.
 
@@ -546,7 +572,8 @@ SecurityContext
 4. Application 계층은 BCrypt, JWT, JPA와 같은
    구체적인 외부 기술에 직접 의존하지 않는다.
 
-5. 외부 기술은 Outbound Port와 Adapter를 통해 연결한다.
+5. 로그인에서 사용하는 외부 기능은 Outbound Port와 Adapter로 연결한다.
+   HTTP 요청 인증과 오류 응답은 Inbound 측 보안 구성에서 처리한다.
 
 6. 로그인 실패 시 사용자 존재 여부와 비밀번호 오류를
    외부에 구분해서 노출하지 않는다. 이 구분 없음은 직접 구현하지 않고
