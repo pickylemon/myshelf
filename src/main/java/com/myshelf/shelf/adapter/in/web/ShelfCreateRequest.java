@@ -7,7 +7,7 @@ import jakarta.validation.constraints.Size;
 import java.util.UUID;
 
 public record ShelfCreateRequest(
-    @NotBlank @Size(max = 255) String name, @Nullable String description) {
+    @NotBlank @Size(max = 255) String name, @Nullable @Size(max = 255) String description) {
   public ShelfCreateCommand toCommand(UUID userId) {
     return new ShelfCreateCommand(userId, name, description);
   }
