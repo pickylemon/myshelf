@@ -3,17 +3,20 @@ package com.myshelf.shelf.application.service;
 import com.myshelf.global.util.UuidGenerator;
 import com.myshelf.shelf.application.port.in.ShelfCreateCommand;
 import com.myshelf.shelf.application.port.in.ShelfCreateUseCase;
+import com.myshelf.shelf.application.port.in.ShelfGetUseCase;
+import com.myshelf.shelf.application.port.in.ShelfListUseCase;
 import com.myshelf.shelf.application.port.out.ShelfRepositoryPort;
 import com.myshelf.shelf.domain.Shelf;
 import com.myshelf.shelf.error.ShelfErrorCode;
 import com.myshelf.shelf.exception.ShelfException;
+import java.util.List;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
-public class ShelfService implements ShelfCreateUseCase {
+public class ShelfService implements ShelfCreateUseCase, ShelfListUseCase, ShelfGetUseCase {
   private final ShelfRepositoryPort shelfRepositoryPort;
 
   @Override
@@ -29,5 +32,15 @@ public class ShelfService implements ShelfCreateUseCase {
 
     // 4. 영속화
     return shelfRepositoryPort.save(shelf).getId();
+  }
+
+  @Override
+  public List<Shelf> list(UUID userId) {
+    return List.of();
+  }
+
+  @Override
+  public Shelf get(UUID userId, UUID shelfId) {
+    return null;
   }
 }

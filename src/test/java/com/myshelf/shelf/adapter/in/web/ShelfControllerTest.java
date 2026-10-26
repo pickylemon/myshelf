@@ -13,6 +13,8 @@ import com.myshelf.auth.adapter.in.security.ProblemDetailAuthenticationEntryPoin
 import com.myshelf.global.config.SecurityConfig;
 import com.myshelf.shelf.application.port.in.ShelfCreateCommand;
 import com.myshelf.shelf.application.port.in.ShelfCreateUseCase;
+import com.myshelf.shelf.application.port.in.ShelfGetUseCase;
+import com.myshelf.shelf.application.port.in.ShelfListUseCase;
 import com.myshelf.shelf.error.ShelfErrorCode;
 import com.myshelf.shelf.exception.ShelfException;
 import java.util.UUID;
@@ -43,6 +45,8 @@ class ShelfControllerTest {
   @Autowired ObjectMapper objectMapper;
 
   @MockitoBean ShelfCreateUseCase shelfCreateUseCase;
+  @MockitoBean ShelfListUseCase shelfListUseCase;
+  @MockitoBean ShelfGetUseCase shelfGetUseCase;
   @MockitoBean JwtDecoder jwtDecoder;
   @MockitoBean AuthenticationManager authenticationManager;
 

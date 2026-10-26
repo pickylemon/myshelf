@@ -51,7 +51,7 @@ class ShelfCreateIntegrationTest {
     }
   }
 
-  /** 정상 요청은 201과 Shelf ID를 반환하고, 해당 DB 행에 JWT 사용자 UUID·Shelf 이름·설명을 저장한다. */
+  /** 정상 요청은 201과 Shelf ID를 반환하고, DB에 소유자·이름·설명 및 생성·수정 시각을 저장한다. */
   @ParameterizedTest
   @MethodSource("validRequests")
   void createPersistsShelfWithJwtOwner(String name, String description) throws Exception {
@@ -62,11 +62,14 @@ class ShelfCreateIntegrationTest {
 
     Map<String, Object> row =
         jdbcTemplate.queryForMap(
-            "select id, user_id, name, description from shelves where id = ?", shelfId);
+            "select id, user_id, name, description, created_at, updated_at from shelves where id = ?",
+            shelfId);
     assertThat(row.get("id")).isEqualTo(shelfId);
     assertThat(row.get("user_id")).isEqualTo(userId);
     assertThat(row.get("name")).isEqualTo(name);
     assertThat(row.get("description")).isEqualTo(description);
+    assertThat(row.get("created_at")).isNotNull();
+    assertThat(row.get("updated_at")).isNotNull();
   }
 
   /** 같은 사용자가 동일한 Shelf 이름으로 다시 생성하면 409를 반환하고 기존 Shelf 한 개와 설명을 유지한다. */

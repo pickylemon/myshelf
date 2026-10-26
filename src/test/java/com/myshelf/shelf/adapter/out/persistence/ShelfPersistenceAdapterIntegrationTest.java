@@ -53,7 +53,7 @@ class ShelfPersistenceAdapterIntegrationTest {
     assertThatThrownBy(
             () ->
                 shelfJpaRepository.saveAndFlush(
-                    new ShelfEntity(UUID.randomUUID(), "같은 이름", "설명", userId)))
+                    new ShelfEntity(UUID.randomUUID(), "같은 이름", "설명", userId, null, null)))
         .isInstanceOfSatisfying(
             DataIntegrityViolationException.class,
             ex -> {
@@ -108,7 +108,7 @@ class ShelfPersistenceAdapterIntegrationTest {
     assertThatThrownBy(
             () ->
                 shelfJpaRepository.saveAndFlush(
-                    new ShelfEntity(UUID.randomUUID(), "내 서재", null, missingUserId)))
+                    new ShelfEntity(UUID.randomUUID(), "내 서재", null, missingUserId, null, null)))
         .isInstanceOfSatisfying(
             DataIntegrityViolationException.class,
             ex -> {
@@ -124,6 +124,26 @@ class ShelfPersistenceAdapterIntegrationTest {
             ex -> assertThat(ex.getErrorCode()).isEqualTo(ShelfErrorCode.INVALID_SHELF_OWNER));
 
     assertThat(shelfJpaRepository.findById(shelfId)).isEmpty();
+  }
+
+  /** 저장 시 생성·수정 시각이 채워지고, DB에서 읽은 값이 반환된 Shelf의 시각과 일치한다. */
+  @Test
+  void saveReturnsGeneratedAuditTimestamps() {
+    UUID userId = createUser();
+    Shelf saved =
+        shelfPersistenceAdapter.save(new Shelf(UUID.randomUUID(), "생성 시각 확인", null, userId));
+
+    assertThat(saved.getCreatedAt()).isNotNull();
+    assertThat(saved.getUpdatedAt()).isNotNull();
+    assertThat(shelfJpaRepository.findById(saved.getId()))
+        .hasValueSatisfying(
+            entity -> {
+              assertThat(entity.getCreatedAt()).isEqualTo(saved.getCreatedAt());
+              assertThat(entity.getUpdatedAt()).isEqualTo(saved.getUpdatedAt());
+              Shelf restored = ShelfEntity.toDomain(entity);
+              assertThat(restored.getCreatedAt()).isEqualTo(entity.getCreatedAt());
+              assertThat(restored.getUpdatedAt()).isEqualTo(entity.getUpdatedAt());
+            });
   }
 
   private UUID createUser() {
