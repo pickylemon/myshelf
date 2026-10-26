@@ -16,6 +16,7 @@ import org.springframework.stereotype.Repository;
 public class ShelfPersistenceAdapter implements ShelfRepositoryPort {
   private final ShelfJpaRepository shelfJpaRepository;
   private static final String NAME_UNIQUE_CONSTRAINT = "uk_shelves_name_per_user";
+  private static final String USER_FK_CONSTRAINT = "fk_shelves_user";
 
   @Override
   public Shelf save(Shelf shelf) {
@@ -25,9 +26,16 @@ public class ShelfPersistenceAdapter implements ShelfRepositoryPort {
 
       return ShelfEntity.toDomain(savedShelf);
     } catch (DataIntegrityViolationException e) {
-      if (isNameUniqueViolation(e)) {
+      if (isConstraintViolation(
+          e, ConstraintViolationException.ConstraintKind.UNIQUE, NAME_UNIQUE_CONSTRAINT)) {
         throw new ShelfException(ShelfErrorCode.DUPLICATE_NAME);
       }
+
+      if (isConstraintViolation(
+          e, ConstraintViolationException.ConstraintKind.FOREIGN_KEY, USER_FK_CONSTRAINT)) {
+        throw new ShelfException(ShelfErrorCode.INVALID_SHELF_OWNER);
+      }
+
       throw e;
     }
   }
@@ -37,11 +45,14 @@ public class ShelfPersistenceAdapter implements ShelfRepositoryPort {
     return shelfJpaRepository.existsByUserIdAndName(userId, name);
   }
 
-  private boolean isNameUniqueViolation(DataIntegrityViolationException e) {
-    Throwable cause = e;
+  private boolean isConstraintViolation(
+      Throwable throwable,
+      ConstraintViolationException.ConstraintKind kind,
+      String expectedConstraintName) {
+    Throwable cause = throwable;
     while (cause != null) {
       if (cause instanceof ConstraintViolationException constraintException) {
-        if (constraintException.getKind() != ConstraintViolationException.ConstraintKind.UNIQUE) {
+        if (constraintException.getKind() != kind) {
           return false;
         }
 
@@ -49,7 +60,7 @@ public class ShelfPersistenceAdapter implements ShelfRepositoryPort {
         return constraintName != null
             && constraintName
                 .toUpperCase(Locale.ROOT)
-                .contains(NAME_UNIQUE_CONSTRAINT.toUpperCase(Locale.ROOT));
+                .contains(expectedConstraintName.toUpperCase(Locale.ROOT));
       }
 
       cause = cause.getCause();

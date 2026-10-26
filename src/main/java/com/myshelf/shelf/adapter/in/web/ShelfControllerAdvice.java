@@ -2,20 +2,23 @@ package com.myshelf.shelf.adapter.in.web;
 
 import com.myshelf.shelf.error.ShelfErrorCode;
 import com.myshelf.shelf.exception.ShelfException;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 @RestControllerAdvice
 public class ShelfControllerAdvice {
   @ExceptionHandler(ShelfException.class)
-  public ProblemDetail handleShelfException(ShelfException e) {
+  public ResponseEntity<ProblemDetail> handleShelfException(ShelfException e) {
     ShelfErrorCode errorCode = e.getErrorCode();
 
     HttpStatus httpStatus =
         switch (errorCode) {
           case DUPLICATE_NAME -> HttpStatus.CONFLICT;
+          case INVALID_SHELF_OWNER -> HttpStatus.UNAUTHORIZED;
         };
 
     ProblemDetail problemDetail =
@@ -24,6 +27,11 @@ public class ShelfControllerAdvice {
     problemDetail.setTitle("Shelf Error");
     problemDetail.setProperty("code", errorCode.name());
 
-    return problemDetail;
+    ResponseEntity.BodyBuilder responseBuilder = ResponseEntity.status(httpStatus);
+    if (httpStatus == HttpStatus.UNAUTHORIZED) {
+      responseBuilder.header(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+    }
+
+    return responseBuilder.body(problemDetail);
   }
 }

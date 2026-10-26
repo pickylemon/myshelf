@@ -6,7 +6,8 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 @Getter
 public enum ShelfErrorCode {
-  DUPLICATE_NAME("DUPLICATE_NAME", "존재하는 Shelf 이름입니다.");
+  DUPLICATE_NAME("DUPLICATE_NAME", "존재하는 Shelf 이름입니다."),
+  INVALID_SHELF_OWNER("INVALID_SHELF_OWNER", "Shelf 소유자 정보를 확인할 수 없습니다.");
 
   private final String code;
   private final String message;
