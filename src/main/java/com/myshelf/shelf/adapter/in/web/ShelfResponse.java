@@ -3,15 +3,9 @@ package com.myshelf.shelf.adapter.in.web;
 import com.myshelf.shelf.domain.Shelf;
 import java.time.Instant;
 import java.util.UUID;
-import lombok.AllArgsConstructor;
 
-@AllArgsConstructor
-public class ShelfResponse {
-  private UUID id;
-  private String name;
-  private String description;
-  private Instant createdAt;
-  private Instant updatedAt;
+public record ShelfResponse(
+    UUID id, String name, String description, Instant createdAt, Instant updatedAt) {
 
   public static ShelfResponse from(Shelf shelf) {
     return new ShelfResponse(

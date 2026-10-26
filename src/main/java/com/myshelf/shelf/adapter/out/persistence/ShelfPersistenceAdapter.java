@@ -4,7 +4,9 @@ import com.myshelf.shelf.application.port.out.ShelfRepositoryPort;
 import com.myshelf.shelf.domain.Shelf;
 import com.myshelf.shelf.error.ShelfErrorCode;
 import com.myshelf.shelf.exception.ShelfException;
+import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.exception.ConstraintViolationException;
@@ -67,5 +69,18 @@ public class ShelfPersistenceAdapter implements ShelfRepositoryPort {
     }
 
     return false;
+  }
+
+  @Override
+  public List<Shelf> list(UUID userId) {
+    List<ShelfEntity> shelfEntityList = shelfJpaRepository.findShelfEntitiesByUserId(userId);
+    return shelfEntityList.stream().map(ShelfEntity::toDomain).toList();
+  }
+
+  @Override
+  public Optional<Shelf> get(UUID userId, UUID shelfId) {
+    return shelfJpaRepository
+        .findShelfEntityByIdAndUserId(shelfId, userId)
+        .map(ShelfEntity::toDomain);
   }
 }

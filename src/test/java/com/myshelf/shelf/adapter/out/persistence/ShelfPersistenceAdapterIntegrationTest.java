@@ -8,12 +8,16 @@ import com.myshelf.shelf.error.ShelfErrorCode;
 import com.myshelf.shelf.exception.ShelfException;
 import com.myshelf.user.adapter.out.persistence.UserPersistenceAdapter;
 import com.myshelf.user.domain.User;
+import java.sql.Timestamp;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -144,6 +148,76 @@ class ShelfPersistenceAdapterIntegrationTest {
               assertThat(restored.getCreatedAt()).isEqualTo(entity.getCreatedAt());
               assertThat(restored.getUpdatedAt()).isEqualTo(entity.getUpdatedAt());
             });
+  }
+
+  /** SQL로 저장한 데이터에서 본인 소유만 조회하고 모든 필드가 Domain으로 매핑되는지 검증한다. */
+  @Test
+  void listFiltersByUserAndMapsPersistedFields() {
+    UUID userId = createUser();
+    Shelf first = insertShelf(userId, "같은 이름", "내 설명");
+    Shelf second = insertShelf(userId, "설명 없는 서재", null);
+    insertShelf(createUser(), "같은 이름", "타인의 설명");
+
+    List<Shelf> actual = shelfPersistenceAdapter.list(userId);
+
+    assertThat(actual).hasSize(2);
+    for (Shelf expected : List.of(first, second)) {
+      assertThat(actual)
+          .filteredOn(shelf -> shelf.getId().equals(expected.getId()))
+          .singleElement()
+          .usingRecursiveComparison()
+          .isEqualTo(expected);
+    }
+  }
+
+  /** 타인의 데이터가 존재해도 자신의 Shelf가 없으면 빈 목록을 반환한다. */
+  @Test
+  void listReturnsEmptyForUserWithoutShelves() {
+    UUID userId = createUser();
+    insertShelf(createUser(), "타인의 서재", null);
+
+    assertThat(shelfPersistenceAdapter.list(userId)).isEmpty();
+  }
+
+  /** 단건 조회가 실제 DB의 소유자·설명·서로 다른 생성 및 수정 시각을 보존한다. */
+  @Test
+  void getMapsAllPersistedFieldsForOwner() {
+    UUID userId = createUser();
+    Shelf expected = insertShelf(userId, "내 서재", "설명");
+
+    assertThat(shelfPersistenceAdapter.get(userId, expected.getId()))
+        .hasValueSatisfying(
+            actual -> assertThat(actual).usingRecursiveComparison().isEqualTo(expected));
+  }
+
+  /** Shelf ID만으로 조회하지 않으며, 타인 소유와 없는 ID 모두 Optional.empty로 반환한다. */
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void getReturnsEmptyForOtherOwnerOrMissingShelf(boolean ownedByOtherUser) {
+    UUID userId = createUser();
+    UUID shelfId =
+        ownedByOtherUser ? insertShelf(createUser(), "타인의 서재", null).getId() : UUID.randomUUID();
+
+    assertThat(shelfPersistenceAdapter.get(userId, shelfId)).isEmpty();
+  }
+
+  // 저장 로직의 변환에 의존하지 않고, DB에 직접 넣은 알려진 값을 조회해 검증한다.
+  private Shelf insertShelf(UUID userId, String name, String description) {
+    UUID shelfId = UUID.randomUUID();
+    Instant createdAt = Instant.parse("2026-10-01T01:02:03Z");
+    Instant updatedAt = Instant.parse("2026-10-02T04:05:06Z");
+    jdbcTemplate.update(
+        """
+        insert into shelves (id, user_id, name, description, created_at, updated_at)
+        values (?, ?, ?, ?, ?, ?)
+        """,
+        shelfId,
+        userId,
+        name,
+        description,
+        Timestamp.from(createdAt),
+        Timestamp.from(updatedAt));
+    return new Shelf(shelfId, name, description, userId, createdAt, updatedAt);
   }
 
   private UUID createUser() {

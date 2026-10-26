@@ -36,11 +36,13 @@ public class ShelfService implements ShelfCreateUseCase, ShelfListUseCase, Shelf
 
   @Override
   public List<Shelf> list(UUID userId) {
-    return List.of();
+    return shelfRepositoryPort.list(userId);
   }
 
   @Override
   public Shelf get(UUID userId, UUID shelfId) {
-    return null;
+    return shelfRepositoryPort
+        .get(userId, shelfId)
+        .orElseThrow(() -> new ShelfException(ShelfErrorCode.SHELF_NOT_FOUND));
   }
 }

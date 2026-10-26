@@ -19,6 +19,7 @@ public class ShelfControllerAdvice {
         switch (errorCode) {
           case DUPLICATE_NAME -> HttpStatus.CONFLICT;
           case INVALID_SHELF_OWNER -> HttpStatus.UNAUTHORIZED;
+          case SHELF_NOT_FOUND -> HttpStatus.NOT_FOUND;
         };
 
     ProblemDetail problemDetail =

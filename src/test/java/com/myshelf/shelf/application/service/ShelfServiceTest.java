@@ -13,6 +13,8 @@ import com.myshelf.shelf.application.port.out.ShelfRepositoryPort;
 import com.myshelf.shelf.domain.Shelf;
 import com.myshelf.shelf.error.ShelfErrorCode;
 import com.myshelf.shelf.exception.ShelfException;
+import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,7 +27,7 @@ import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
-/** 저장 포트를 Mock하여 사용자별 Shelf 이름 중복 검사와 생성 흐름을 검증한다. */
+/** 저장 포트를 Mock하여 Shelf 생성 흐름과 조회 결과·부재 처리를 검증한다. */
 @ExtendWith(MockitoExtension.class)
 class ShelfServiceTest {
 
@@ -36,6 +38,54 @@ class ShelfServiceTest {
   @BeforeEach
   void setUp() {
     shelfService = new ShelfService(shelfRepositoryPort);
+  }
+
+  /** 목록 조회에 인증 사용자 ID를 전달하고 조회된 Shelf를 반환한다. 데이터 격리는 DB 테스트에서 검증한다. */
+  @Test
+  void listPassesUserIdAndReturnsShelves() {
+    UUID userId = UUID.randomUUID();
+    Shelf first = new Shelf(UUID.randomUUID(), "소설", "읽을 책", userId);
+    Shelf second = new Shelf(UUID.randomUUID(), "인문", null, userId);
+    when(shelfRepositoryPort.list(userId)).thenReturn(List.of(first, second));
+
+    assertThat(shelfService.list(userId)).containsExactlyInAnyOrder(first, second);
+
+    verify(shelfRepositoryPort).list(userId);
+  }
+
+  /** 자신의 Shelf가 없으면 예외를 발생시키지 않고 빈 목록을 반환한다. */
+  @Test
+  void listReturnsEmptyWhenNoShelvesAreFound() {
+    UUID userId = UUID.randomUUID();
+    when(shelfRepositoryPort.list(userId)).thenReturn(List.of());
+
+    assertThat(shelfService.list(userId)).isEmpty();
+  }
+
+  /** 단건 조회에는 사용자 ID와 Shelf ID를 함께 전달하고 찾은 도메인 객체를 반환한다. */
+  @Test
+  void getPassesOwnerAndShelfIdAndReturnsShelf() {
+    UUID userId = UUID.randomUUID();
+    UUID shelfId = UUID.randomUUID();
+    Shelf shelf = new Shelf(shelfId, "내 서재", "설명", userId);
+    when(shelfRepositoryPort.get(userId, shelfId)).thenReturn(Optional.of(shelf));
+
+    assertThat(shelfService.get(userId, shelfId)).isSameAs(shelf);
+
+    verify(shelfRepositoryPort).get(userId, shelfId);
+  }
+
+  /** 포트의 조회 결과가 없으면 사유를 구분하지 않고 SHELF_NOT_FOUND로 변환한다. */
+  @Test
+  void getThrowsNotFoundWhenRepositoryReturnsEmpty() {
+    UUID userId = UUID.randomUUID();
+    UUID shelfId = UUID.randomUUID();
+    when(shelfRepositoryPort.get(userId, shelfId)).thenReturn(Optional.empty());
+
+    assertThatThrownBy(() -> shelfService.get(userId, shelfId))
+        .isInstanceOfSatisfying(
+            ShelfException.class,
+            ex -> assertThat(ex.getErrorCode()).isEqualTo(ShelfErrorCode.SHELF_NOT_FOUND));
   }
 
   /** 같은 사용자의 Shelf 이름이 중복되면 DUPLICATE_NAME 예외를 던지고 저장하지 않는다. */
