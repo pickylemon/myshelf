@@ -13,6 +13,8 @@ MyShelf의 `createShelf` 기능을 구현하면서 네 가지 테스트 클래�
 
 특히 Service 단위 테스트에서 실제 DB를 사용하지 않는 이유와, 전체 API 통합 테스트에서 HTTP 응답뿐 아니라 DB 상태까지 검증하는 이유를 학습했다.
 
+이후 Shelf UPDATE 테스트를 작성하면서 Mockito의 인자 매칭 방식과 Stubbing, Verification의 차이도 추가로 학습했다.
+
 ## 2. 테스트별 검증 범위
 
 | 테스트 | 분류 | 검증 대상 |
@@ -45,8 +47,8 @@ Service가 의존하는 Port를 Mock으로 대체한다.
 - 올바른 Shelf 객체를 Port에 전달하는가?
 - Port가 반환한 저장 결과를 올바르게 처리하는가?
 
-단건 조회에서는 `ShelfService.get(userId, shelfId)`가 Port의
-`findByIdAndUserId(shelfId, userId)`를 호출하는지, 빈 결과를 `SHELF_NOT_FOUND`로 변환하는지 검증한다.
+단건 조회에서는 `ShelfService.get(userId, shelfId)`가 Port의 `findByIdAndUserId(shelfId, userId)`를 호출하는지, 빈 결과를 `SHELF_NOT_FOUND`로 변환하는지 검증한다.
+
 Mock 설정과 호출 검증에서도 Port의 인자 순서인 **Shelf ID → 사용자 ID**를 사용한다.
 
 **단위 테스트는 전체 호출 체인을 검증하는 것이 아니라 특정 단위의 동작을 격리해서 검증한다.**
@@ -60,7 +62,7 @@ HTTP 요청 (MockMvc)
 ShelfController
     |
     v
-CreateShelfUseCase (Mock 객체)
+ShelfCreateUseCase (Mock 객체)
 ```
 
 `@WebMvcTest`와 MockMvc를 이용하는 경우 Spring MVC의 요청 처리 기능을 테스트하면서 Application UseCase는 Mock으로 대체한다.
@@ -98,8 +100,8 @@ PostgreSQL
 - DB 제약조건 위반이 적절한 애플리케이션 예외로 변환되는가?
 
 단건 조회는 `ShelfPersistenceAdapter.findByIdAndUserId(shelfId, userId)`를 직접 호출한다.
-자신의 Shelf는 저장된 필드와 함께 반환되고, 타인 소유이거나 존재하지 않는 Shelf는
-`Optional.empty()`로 반환되는지 실제 PostgreSQL에서 검증한다.
+
+자신의 Shelf는 저장된 필드와 함께 반환되고, 타인 소유이거나 존재하지 않는 Shelf는 `Optional.empty()`로 반환되는지 실제 PostgreSQL에서 검증한다.
 
 Service 단위 테스트에서는 Mock Port를 사용하므로 검증할 수 없는 부분이다.
 
@@ -428,10 +430,131 @@ Repository가 이미 존재하는 테스트 트랜잭션에 참여하면 `save()
 5. **반복되는 테스트 준비 작업은 헬퍼로 분리한다.** 단, 헬퍼에 포함된 검증이 무엇인지 명확히 이해해야 한다.
 6. **@Transactional을 습관적으로 사용하지 않는다.** 테스트가 운영 코드의 트랜잭션 경계를 바꾸지 않는지 고려한다.
 7. **모든 계층에 무조건 테스트 클래스를 만들 필요는 없다.** 실제로 검증할 동작과 위험을 기준으로 테스트 범위를 결정한다.
+8. **Mock의 결과 설정과 호출 검증을 구분한다.** Stubbing이 성공했다고 해서 올바른 인자가 전달되었음까지 검증된 것은 아니다.
 
-## 10. 정리
+## 10. Mockito 인자 매칭과 Stubbing / Verification
 
-MyShelf의 Shelf 생성 테스트를 통해 다음 내용을 이해했다.
+### 10.1 학습 배경
+
+Shelf UPDATE 단위 테스트에서 이름 중복 검사에 사용할 Mock을 다음과 같이 설정했다.
+
+```java
+Shelf newShelf = new Shelf(id, name, description, userId);
+
+when(shelfRepositoryPort.existsByUserIdAndNameExcludingSelf(newShelf))
+    .thenReturn(true);
+```
+
+하지만 예상한 Stubbing이 적용되지 않는 문제가 있었다.
+
+원인은 **테스트 코드에서 생성한 Shelf와 Service가 실제로 Port에 전달하는 Shelf가 서로 다른 객체**이기 때문이다.
+
+### 10.2 Mockito의 인자 매칭 방식
+
+`ShelfService.update()`에서는 Command를 이용해 새로운 Shelf 객체를 생성한다.
+
+```java
+Shelf shelf = new Shelf(
+    command.shelfId(),
+    command.name(),
+    command.description(),
+    command.userId()
+);
+
+shelfRepositoryPort.existsByUserIdAndNameExcludingSelf(shelf);
+```
+
+즉, 다음 두 객체가 존재한다.
+
+- `newShelf`: 테스트 코드에서 생성한 객체
+- `shelf`: Service 내부에서 생성한 객체
+
+두 객체의 필드 값이 같더라도 서로 다른 인스턴스다.
+
+Mockito는 일반적인 인자 매칭에서 `equals()`를 사용한다.
+
+현재 Shelf 도메인 객체는 `equals()`를 재정의하지 않았으므로, 서로 다른 인스턴스를 같은 객체로 판단하지 않는다.
+
+```java
+Shelf a = new Shelf(id, name, description, userId);
+Shelf b = new Shelf(id, name, description, userId);
+
+a == b;       // false
+a.equals(b);  // false
+```
+
+따라서 특정 객체를 인자로 지정한 Stubbing은 Service가 새로 생성한 객체와 매칭되지 않는다.
+
+### 10.3 any()를 통한 Stubbing
+
+이를 다음과 같이 변경할 수 있다.
+
+```java
+when(shelfRepositoryPort.existsByUserIdAndNameExcludingSelf(
+        any(Shelf.class)))
+    .thenReturn(true);
+```
+
+`any(Shelf.class)`는 null이 아닌 모든 Shelf 객체를 매칭한다.
+
+이렇게 하면 Service가 새로운 객체를 생성하더라도 Mock이 `true`를 반환한다.
+
+여기서 중요한 것은 **실제 Repository의 중복 검사 로직을 실행하는 것이 아니라, 중복된 이름이 존재한다는 상황을 가정한다는 점**이다.
+
+이 테스트의 검증 대상은 Repository가 아니라 Service의 비즈니스 로직이다.
+
+### 10.4 Stubbing과 Verification의 차이
+
+Mock을 사용하는 테스트에서는 두 가지 역할을 구분해야 한다.
+
+| 구분 | 목적 | 주요 메서드 |
+|---|---|---|
+| Stubbing | 의존성이 반환할 결과 설정 | `when()`, `thenReturn()` |
+| Verification | 의존성이 어떻게 호출되었는지 검증 | `verify()`, `argThat()` |
+
+`any()`로 Stubbing하면 어떤 Shelf 객체가 전달되어도 설정한 결과를 반환한다.
+
+따라서 Service가 올바른 정보를 전달했는지 검증하려면 별도 확인이 필요하다.
+
+```java
+verify(shelfRepositoryPort)
+    .existsByUserIdAndNameExcludingSelf(
+        argThat(shelf ->
+            shelf.getId().equals(id)
+                && shelf.getUserId().equals(userId)
+                && shelf.getName().equals(name)
+        )
+    );
+```
+
+이 코드는 Service 실행 후 Mock 메서드에 전달된 Shelf의 값을 검증한다.
+
+이전에 학습한 `ArgumentCaptor`를 이용해 전달 객체를 캡처한 후 필드를 검증할 수도 있다.
+
+**Stubbing은 테스트 상황을 설정하는 것이고, Verification은 실제 동작을 확인하는 것이다.**
+
+### 10.5 이번 학습에서 이해한 점
+
+처음에는 Persistence Adapter가 JPA Entity를 Domain 객체로 변환하면서 새로운 Shelf를 생성하기 때문에 발생한 문제라고 생각했다.
+
+하지만 Service 단위 테스트에서는 Repository Port가 Mock으로 대체되어 **실제 Persistence Adapter 자체가 실행되지 않는다.**
+
+문제는 테스트 코드와 Service가 각각 새로운 Shelf 객체를 생성했다는 데 있었다.
+
+이를 통해 다음 사항을 이해했다.
+
+- Mock은 실제 Repository 로직을 대신 실행하는 것이 아니다.
+- 테스트에서 직접 생성한 객체가 Service에 자동으로 전달되는 것은 아니다.
+- 인자가 매칭되지 않으면 Stubbing이 적용되지 않아 기본 반환값이 사용될 수 있다.
+- `any()`는 인스턴스 차이와 무관하게 Mock의 응답을 설정할 수 있다.
+- 전달값 자체가 중요하다면 `verify()`, `argThat()`, `ArgumentCaptor`로 검증한다.
+- 테스트 편의를 위해 도메인 객체의 `equals()`를 무조건 변경할 필요는 없다.
+
+**Mock이 어떤 결과를 반환하도록 설정했는지와, Service가 올바른 인자를 전달했는지는 별도로 검증해야 한다.**
+
+## 11. 정리
+
+MyShelf의 Shelf 테스트를 통해 다음 내용을 이해했다.
 
 - 단위 테스트는 특정 단위의 로직을 격리하여 검증한다.
 - Service 단위 테스트에서는 실제 DB 대신 Mock Port를 사용한다.
@@ -441,6 +564,8 @@ MyShelf의 Shelf 생성 테스트를 통해 다음 내용을 이해했다.
 - MockMvc로 받은 HTTP 응답과 JdbcTemplate로 조회한 DB 상태를 함께 확인할 수 있다.
 - 테스트 헬퍼와 파라미터화 테스트를 활용하면 중복을 줄일 수 있다.
 - 테스트의 `@Transactional` 설정이 예외 발생 시점과 검증 결과에 영향을 줄 수 있다.
+- Mockito는 인자를 `equals()` 기반으로 매칭하므로 객체 동등성에 주의해야 한다.
+- Mock의 Stubbing과 Verification은 각각 테스트 조건 설정과 동작 검증이라는 다른 책임을 가진다.
 
 **핵심은 테스트 코드를 얼마나 많이 작성했는지가 아니라, 각각의 테스트가 무엇을 검증하고 무엇을 검증하지 않는지 정확하게 이해하는 것이다.**
 
