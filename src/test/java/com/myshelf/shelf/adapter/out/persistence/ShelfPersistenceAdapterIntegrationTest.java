@@ -12,11 +12,14 @@ import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import org.hibernate.exception.ConstraintViolationException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -25,8 +28,8 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.ActiveProfiles;
 
 /**
- * 실제 PostgreSQL의 Shelf 이름 UNIQUE·소유자 FK와 예외 변환을 검증한다. 테스트 전체에 트랜잭션을 걸지 않아 Repository의 commit/flush
- * 실패가 Adapter의 catch까지 전달되는 운영 흐름을 유지한다.
+ * 실제 PostgreSQL의 Shelf 저장·조회·수정·삭제와 제약 위반의 예외 변환을 검증한다. 테스트 전체에 트랜잭션을 걸지 않아 운영 코드의 트랜잭션 경계와
+ * commit/flush 동작을 유지한다.
  */
 @SpringBootTest
 @ActiveProfiles("test")
@@ -199,6 +202,128 @@ class ShelfPersistenceAdapterIntegrationTest {
         ownedByOtherUser ? insertShelf(createUser(), "타인의 서재", null).getId() : UUID.randomUUID();
 
     assertThat(shelfPersistenceAdapter.findByIdAndUserId(shelfId, userId)).isEmpty();
+  }
+
+  /** 본인 서재의 이름·설명을 수정하고, 반환값과 DB 반영 및 생성·수정 시각을 확인한다. */
+  @ParameterizedTest
+  @CsvSource({"원래 이름, 새로운 설명", "새 이름, 원래 설명", "원래 이름,", "원래 이름, ''"})
+  void 정상_수정_케이스(String name, String description) {
+    // given
+    UUID userId = createUser();
+    Shelf savedShelf = insertShelf(userId, "원래 이름", "원래 설명");
+
+    // when
+    Optional<Shelf> result =
+        shelfPersistenceAdapter.update(new Shelf(savedShelf.getId(), name, description, userId));
+
+    // then
+    Map<String, Object> stored =
+        jdbcTemplate.queryForMap("select * from shelves where id = ?", savedShelf.getId());
+    assertThat(stored.get("id")).isEqualTo(savedShelf.getId());
+    assertThat(stored.get("user_id")).isEqualTo(userId);
+    assertThat(stored.get("name")).isEqualTo(name);
+    assertThat(stored.get("description")).isEqualTo(description);
+    assertThat(((Timestamp) stored.get("created_at")).toInstant())
+        .isEqualTo(savedShelf.getCreatedAt());
+    assertThat(((Timestamp) stored.get("updated_at")).toInstant())
+        .isAfter(savedShelf.getUpdatedAt());
+    assertThat(result)
+        .hasValueSatisfying(
+            actual -> {
+              assertThat(actual.getId()).isEqualTo(savedShelf.getId());
+              assertThat(actual.getUserId()).isEqualTo(userId);
+              assertThat(actual.getName()).isEqualTo(name);
+              assertThat(actual.getDescription()).isEqualTo(description);
+              assertThat(actual.getCreatedAt())
+                  .isEqualTo(((Timestamp) stored.get("created_at")).toInstant());
+              assertThat(actual.getUpdatedAt())
+                  .isEqualTo(((Timestamp) stored.get("updated_at")).toInstant());
+            });
+  }
+
+  /** 다른 사용자의 ID로 수정을 시도하면 빈 결과를 반환하고 원본의 모든 컬럼을 보존한다. */
+  @Test
+  void 타인_서재는_수정하지_않는다() {
+    // given
+    UUID requesterId = createUser();
+    UUID ownerId = createUser();
+    Shelf savedShelf = insertShelf(ownerId, "타인의 서재", "기존 설명");
+    Map<String, Object> before =
+        jdbcTemplate.queryForMap("select * from shelves where id = ?", savedShelf.getId());
+
+    // when
+    Optional<Shelf> result =
+        shelfPersistenceAdapter.update(
+            new Shelf(savedShelf.getId(), "변경할 이름", "변경할 설명", requesterId));
+
+    // then
+    assertThat(result).isEmpty();
+    assertThat(jdbcTemplate.queryForMap("select * from shelves where id = ?", savedShelf.getId()))
+        .isEqualTo(before);
+  }
+
+  /** 같은 사용자의 다른 서재 이름으로 수정하면 UNIQUE 위반을 변환하고 변경을 롤백한다. */
+  @Test
+  void 다른_서재와_이름이_중복되면_예외가_발생하고_원본을_유지한다() {
+    // given
+    UUID userId = createUser();
+    insertShelf(userId, "소설", "소설 설명");
+    Shelf target = insertShelf(userId, "인문", "기존 설명");
+    List<Map<String, Object>> before =
+        jdbcTemplate.queryForList("select * from shelves where user_id = ?", userId);
+
+    // when, then
+    assertThatThrownBy(
+            () ->
+                shelfPersistenceAdapter.update(
+                    new Shelf(target.getId(), "소설", "실패할 설명 변경", userId)))
+        .isInstanceOfSatisfying(
+            ShelfException.class,
+            ex -> assertThat(ex.getErrorCode()).isEqualTo(ShelfErrorCode.DUPLICATE_NAME));
+
+    assertThat(jdbcTemplate.queryForList("select * from shelves where user_id = ?", userId))
+        .containsExactlyInAnyOrderElementsOf(before);
+  }
+
+  /** 본인 서재 삭제는 commit 후 실제 행이 사라지며 다른 사용자의 서재는 유지한다. */
+  @Test
+  void 본인_서재를_삭제한다() {
+    // given
+    UUID userId = createUser();
+    Shelf target = insertShelf(userId, "삭제할 서재", null);
+    Shelf other = insertShelf(createUser(), "남겨둘 서재", "다른 사용자");
+    Map<String, Object> otherBefore =
+        jdbcTemplate.queryForMap("select * from shelves where id = ?", other.getId());
+
+    // when
+    boolean deleted = shelfPersistenceAdapter.delete(target.getId(), userId);
+
+    // then
+    assertThat(deleted).isTrue();
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from shelves where id = ?", Long.class, target.getId()))
+        .isZero();
+    assertThat(jdbcTemplate.queryForMap("select * from shelves where id = ?", other.getId()))
+        .isEqualTo(otherBefore);
+  }
+
+  /** 다른 사용자의 ID로 삭제를 시도하면 false를 반환하고 원본을 보존한다. */
+  @Test
+  void 타인_서재는_삭제하지_않는다() {
+    // given
+    UUID requesterId = createUser();
+    Shelf target = insertShelf(createUser(), "타인의 서재", "기존 설명");
+    Map<String, Object> before =
+        jdbcTemplate.queryForMap("select * from shelves where id = ?", target.getId());
+
+    // when
+    boolean deleted = shelfPersistenceAdapter.delete(target.getId(), requesterId);
+
+    // then
+    assertThat(deleted).isFalse();
+    assertThat(jdbcTemplate.queryForMap("select * from shelves where id = ?", target.getId()))
+        .isEqualTo(before);
   }
 
   // 저장 로직의 변환에 의존하지 않고, DB에 직접 넣은 알려진 값을 조회해 검증한다.
