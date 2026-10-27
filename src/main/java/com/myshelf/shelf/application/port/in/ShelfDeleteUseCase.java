@@ -1,3 +1,7 @@
 package com.myshelf.shelf.application.port.in;
 
-public interface ShelfDeleteUseCase {}
+import java.util.UUID;
+
+public interface ShelfDeleteUseCase {
+  void delete(UUID shelfId, UUID userId);
+}

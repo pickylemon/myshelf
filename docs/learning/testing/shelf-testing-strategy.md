@@ -45,6 +45,10 @@ Service가 의존하는 Port를 Mock으로 대체한다.
 - 올바른 Shelf 객체를 Port에 전달하는가?
 - Port가 반환한 저장 결과를 올바르게 처리하는가?
 
+단건 조회에서는 `ShelfService.get(userId, shelfId)`가 Port의
+`findByIdAndUserId(shelfId, userId)`를 호출하는지, 빈 결과를 `SHELF_NOT_FOUND`로 변환하는지 검증한다.
+Mock 설정과 호출 검증에서도 Port의 인자 순서인 **Shelf ID → 사용자 ID**를 사용한다.
+
 **단위 테스트는 전체 호출 체인을 검증하는 것이 아니라 특정 단위의 동작을 격리해서 검증한다.**
 
 ### 2.2 Controller 웹 계층 테스트
@@ -92,6 +96,10 @@ PostgreSQL
 - 실제 DB에 데이터가 저장되는가?
 - UNIQUE 및 FK 제약조건이 동작하는가?
 - DB 제약조건 위반이 적절한 애플리케이션 예외로 변환되는가?
+
+단건 조회는 `ShelfPersistenceAdapter.findByIdAndUserId(shelfId, userId)`를 직접 호출한다.
+자신의 Shelf는 저장된 필드와 함께 반환되고, 타인 소유이거나 존재하지 않는 Shelf는
+`Optional.empty()`로 반환되는지 실제 PostgreSQL에서 검증한다.
 
 Service 단위 테스트에서는 Mock Port를 사용하므로 검증할 수 없는 부분이다.
 

@@ -185,7 +185,7 @@ class ShelfPersistenceAdapterIntegrationTest {
     UUID userId = createUser();
     Shelf expected = insertShelf(userId, "내 서재", "설명");
 
-    assertThat(shelfPersistenceAdapter.get(userId, expected.getId()))
+    assertThat(shelfPersistenceAdapter.findByIdAndUserId(expected.getId(), userId))
         .hasValueSatisfying(
             actual -> assertThat(actual).usingRecursiveComparison().isEqualTo(expected));
   }
@@ -198,7 +198,7 @@ class ShelfPersistenceAdapterIntegrationTest {
     UUID shelfId =
         ownedByOtherUser ? insertShelf(createUser(), "타인의 서재", null).getId() : UUID.randomUUID();
 
-    assertThat(shelfPersistenceAdapter.get(userId, shelfId)).isEmpty();
+    assertThat(shelfPersistenceAdapter.findByIdAndUserId(shelfId, userId)).isEmpty();
   }
 
   // 저장 로직의 변환에 의존하지 않고, DB에 직접 넣은 알려진 값을 조회해 검증한다.

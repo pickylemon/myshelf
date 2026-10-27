@@ -8,9 +8,15 @@ import java.util.UUID;
 public interface ShelfRepositoryPort {
   Shelf save(Shelf shelf);
 
+  Optional<Shelf> findByIdAndUserId(UUID shelfId, UUID userId);
+
   boolean existsByUserIdAndName(UUID userId, String name);
+
+  boolean existsByUserIdAndNameExcludingSelf(Shelf shelf);
 
   List<Shelf> list(UUID userId);
 
-  Optional<Shelf> get(UUID userId, UUID shelfId);
+  Optional<Shelf> update(Shelf shelf);
+
+  boolean delete(UUID shelfId, UUID userId);
 }

@@ -3,8 +3,11 @@ package com.myshelf.shelf.application.service;
 import com.myshelf.global.util.UuidGenerator;
 import com.myshelf.shelf.application.port.in.ShelfCreateCommand;
 import com.myshelf.shelf.application.port.in.ShelfCreateUseCase;
+import com.myshelf.shelf.application.port.in.ShelfDeleteUseCase;
 import com.myshelf.shelf.application.port.in.ShelfGetUseCase;
 import com.myshelf.shelf.application.port.in.ShelfListUseCase;
+import com.myshelf.shelf.application.port.in.ShelfUpdateCommand;
+import com.myshelf.shelf.application.port.in.ShelfUpdateUseCase;
 import com.myshelf.shelf.application.port.out.ShelfRepositoryPort;
 import com.myshelf.shelf.domain.Shelf;
 import com.myshelf.shelf.error.ShelfErrorCode;
@@ -16,7 +19,12 @@ import org.springframework.stereotype.Service;
 
 @Service
 @RequiredArgsConstructor
-public class ShelfService implements ShelfCreateUseCase, ShelfListUseCase, ShelfGetUseCase {
+public class ShelfService
+    implements ShelfCreateUseCase,
+        ShelfListUseCase,
+        ShelfGetUseCase,
+        ShelfUpdateUseCase,
+        ShelfDeleteUseCase {
   private final ShelfRepositoryPort shelfRepositoryPort;
 
   @Override
@@ -42,7 +50,35 @@ public class ShelfService implements ShelfCreateUseCase, ShelfListUseCase, Shelf
   @Override
   public Shelf get(UUID userId, UUID shelfId) {
     return shelfRepositoryPort
-        .get(userId, shelfId)
+        .findByIdAndUserId(shelfId, userId)
         .orElseThrow(() -> new ShelfException(ShelfErrorCode.SHELF_NOT_FOUND));
+  }
+
+  @Override
+  public Shelf update(ShelfUpdateCommand command) {
+    Shelf shelf =
+        new Shelf(command.shelfId(), command.name(), command.description(), command.userId());
+
+    // 1. 소유권 체크
+    shelfRepositoryPort
+        .findByIdAndUserId(shelf.getId(), shelf.getUserId())
+        .orElseThrow(() -> new ShelfException(ShelfErrorCode.SHELF_NOT_FOUND));
+
+    // 2. 중복 이름 검사(fail-fast)
+    if (shelfRepositoryPort.existsByUserIdAndNameExcludingSelf(shelf)) {
+      throw new ShelfException(ShelfErrorCode.DUPLICATE_NAME);
+    }
+
+    // 3. 업데이트
+    return shelfRepositoryPort
+        .update(shelf)
+        .orElseThrow(() -> new ShelfException(ShelfErrorCode.SHELF_NOT_FOUND));
+  }
+
+  @Override
+  public void delete(UUID shelfId, UUID userId) {
+    if (!shelfRepositoryPort.delete(shelfId, userId)) {
+      throw new ShelfException(ShelfErrorCode.SHELF_NOT_FOUND);
+    }
   }
 }

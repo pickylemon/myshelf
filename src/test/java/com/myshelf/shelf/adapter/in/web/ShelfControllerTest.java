@@ -16,8 +16,10 @@ import com.myshelf.auth.adapter.in.security.ProblemDetailAuthenticationEntryPoin
 import com.myshelf.global.config.SecurityConfig;
 import com.myshelf.shelf.application.port.in.ShelfCreateCommand;
 import com.myshelf.shelf.application.port.in.ShelfCreateUseCase;
+import com.myshelf.shelf.application.port.in.ShelfDeleteUseCase;
 import com.myshelf.shelf.application.port.in.ShelfGetUseCase;
 import com.myshelf.shelf.application.port.in.ShelfListUseCase;
+import com.myshelf.shelf.application.port.in.ShelfUpdateUseCase;
 import com.myshelf.shelf.domain.Shelf;
 import com.myshelf.shelf.error.ShelfErrorCode;
 import com.myshelf.shelf.exception.ShelfException;
@@ -55,6 +57,8 @@ class ShelfControllerTest {
   @MockitoBean ShelfCreateUseCase shelfCreateUseCase;
   @MockitoBean ShelfListUseCase shelfListUseCase;
   @MockitoBean ShelfGetUseCase shelfGetUseCase;
+  @MockitoBean ShelfUpdateUseCase shelfUpdateUseCase;
+  @MockitoBean ShelfDeleteUseCase shelfDeleteUseCase;
   @MockitoBean JwtDecoder jwtDecoder;
   @MockitoBean AuthenticationManager authenticationManager;
 

@@ -1,3 +1,7 @@
 package com.myshelf.shelf.application.port.in;
 
-public interface ShelfUpdateUseCase {}
+import com.myshelf.shelf.domain.Shelf;
+
+public interface ShelfUpdateUseCase {
+  Shelf update(ShelfUpdateCommand command);
+}

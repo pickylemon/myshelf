@@ -54,4 +54,9 @@ public class ShelfEntity {
         savedShelf.getCreatedAt(),
         savedShelf.getUpdatedAt());
   }
+
+  public void update(String name, String description) {
+    this.name = name;
+    this.description = description;
+  }
 }

@@ -8,7 +8,9 @@ import org.springframework.data.jpa.repository.JpaRepository;
 public interface ShelfJpaRepository extends JpaRepository<ShelfEntity, UUID> {
   boolean existsByUserIdAndName(UUID userId, String name);
 
-  List<ShelfEntity> findShelfEntitiesByUserId(UUID userId);
+  Optional<ShelfEntity> findByIdAndUserId(UUID shelfId, UUID userId);
 
-  Optional<ShelfEntity> findShelfEntityByIdAndUserId(UUID shelfId, UUID userId);
+  boolean existsByUserIdAndNameAndIdNot(UUID userId, String name, UUID shelfId);
+
+  List<ShelfEntity> findShelfEntitiesByUserId(UUID userId);
 }

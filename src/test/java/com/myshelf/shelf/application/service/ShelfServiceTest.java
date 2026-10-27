@@ -68,11 +68,11 @@ class ShelfServiceTest {
     UUID userId = UUID.randomUUID();
     UUID shelfId = UUID.randomUUID();
     Shelf shelf = new Shelf(shelfId, "내 서재", "설명", userId);
-    when(shelfRepositoryPort.get(userId, shelfId)).thenReturn(Optional.of(shelf));
+    when(shelfRepositoryPort.findByIdAndUserId(shelfId, userId)).thenReturn(Optional.of(shelf));
 
     assertThat(shelfService.get(userId, shelfId)).isSameAs(shelf);
 
-    verify(shelfRepositoryPort).get(userId, shelfId);
+    verify(shelfRepositoryPort).findByIdAndUserId(shelfId, userId);
   }
 
   /** 포트의 조회 결과가 없으면 사유를 구분하지 않고 SHELF_NOT_FOUND로 변환한다. */
@@ -80,7 +80,7 @@ class ShelfServiceTest {
   void getThrowsNotFoundWhenRepositoryReturnsEmpty() {
     UUID userId = UUID.randomUUID();
     UUID shelfId = UUID.randomUUID();
-    when(shelfRepositoryPort.get(userId, shelfId)).thenReturn(Optional.empty());
+    when(shelfRepositoryPort.findByIdAndUserId(shelfId, userId)).thenReturn(Optional.empty());
 
     assertThatThrownBy(() -> shelfService.get(userId, shelfId))
         .isInstanceOfSatisfying(
