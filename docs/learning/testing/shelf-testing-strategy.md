@@ -13,7 +13,7 @@ MyShelf의 `createShelf` 기능을 구현하면서 네 가지 테스트 클래�
 
 특히 Service 단위 테스트에서 실제 DB를 사용하지 않는 이유와, 전체 API 통합 테스트에서 HTTP 응답뿐 아니라 DB 상태까지 검증하는 이유를 학습했다.
 
-이후 Shelf UPDATE 테스트를 작성하면서 Mockito의 인자 매칭 방식과 Stubbing, Verification의 차이도 추가로 학습했다.
+이후 조회·수정·삭제까지 확장하면서 Mockito의 인자 매칭, 실패 후 DB 상태 보존, 실제 트랜잭션 경계의 검증을 추가로 학습했다. 아래 생성 예제는 기본 원리를 설명하기 위해 유지한다.
 
 ## 2. 테스트별 검증 범위
 
@@ -23,6 +23,8 @@ MyShelf의 `createShelf` 기능을 구현하면서 네 가지 테스트 클래�
 | ShelfControllerTest | 웹 계층 테스트 | 요청·응답, Validation, ControllerAdvice |
 | ShelfPersistenceAdapterIntegrationTest | 영속성 통합 테스트 | Adapter, JPA, PostgreSQL |
 | ShelfCreateIntegrationTest | 전체 API 통합 테스트 | 인증부터 DB 저장까지의 흐름 |
+| ShelfReadIntegrationTest | 전체 API 통합 테스트 | 실제 JWT 기반 목록·상세 조회와 소유권 격리 |
+| ShelfUpdateDeleteIntegrationTest | 전체 API 통합 테스트 | 실제 JWT 기반 수정·삭제, 응답과 DB 변경·보존 |
 
 각 테스트는 검증하려는 대상과 사용하는 의존성이 다르다.
 
@@ -46,6 +48,8 @@ Service가 의존하는 Port를 Mock으로 대체한다.
 - 요청받은 정보로 Shelf를 생성하는가?
 - 올바른 Shelf 객체를 Port에 전달하는가?
 - Port가 반환한 저장 결과를 올바르게 처리하는가?
+
+수정 테스트는 소유권 조회 → 자기 자신을 제외한 이름 중복 검사 → 수정 호출 순서를 검증하고, 중복·부재 시 후속 작업을 하지 않는지 확인한다. 삭제 테스트는 Port의 성공 여부를 정상 종료 또는 `SHELF_NOT_FOUND`로 처리하는지 검증한다. 실제 소유자 조건과 UNIQUE 동작은 DB 테스트의 책임이다.
 
 단건 조회에서는 `ShelfService.get(userId, shelfId)`가 Port의 `findByIdAndUserId(shelfId, userId)`를 호출하는지, 빈 결과를 `SHELF_NOT_FOUND`로 변환하는지 검증한다.
 
@@ -98,6 +102,9 @@ PostgreSQL
 - 실제 DB에 데이터가 저장되는가?
 - UNIQUE 및 FK 제약조건이 동작하는가?
 - DB 제약조건 위반이 적절한 애플리케이션 예외로 변환되는가?
+- 수정 시 자기 이름 유지·설명 null 처리와 감사 시각이 반영되는가?
+- 중복 수정 실패 시 롤백되고, 타인 데이터는 수정·삭제되지 않는가?
+- 삭제 성공 후 대상 행만 사라지는가?
 
 단건 조회는 `ShelfPersistenceAdapter.findByIdAndUserId(shelfId, userId)`를 직접 호출한다.
 
@@ -358,6 +365,16 @@ Repository.save()
 
 ### 8.2 현재 MyShelf의 운영 흐름
 
+생성·수정·삭제의 트랜잭션 경계는 동일하지 않다.
+
+| 작업 | 현재 경계와 검증 포인트 |
+|---|---|
+| 생성 | Repository `save()`의 트랜잭션 종료 중 발생한 제약조건 오류를 Adapter에서 변환 |
+| 수정 | Adapter `@Transactional` 안에서 조회·변경·명시적 `flush()`, UNIQUE 예외 변환 후 롤백 |
+| 삭제 | Adapter `@Transactional` 안에서 조회·삭제, 커밋 후 실제 행 제거 확인 |
+
+아래 흐름도는 생성에 대한 설명이다. 수정의 Dirty Checking·flush·반환 시각 관계는 [JPA UPDATE와 트랜잭션](../database/jpa-update-and-transactions.md)에 정리한다.
+
 현재 Shelf 생성 Service에는 별도의 `@Transactional`이 없다.
 
 따라서 상위 트랜잭션이 없는 상태에서 Spring Data JPA Repository의 `save()`가 호출되면 Repository 자체의 트랜잭션이 적용된다.
@@ -510,11 +527,13 @@ Mock을 사용하는 테스트에서는 두 가지 역할을 구분해야 한다
 | 구분 | 목적 | 주요 메서드 |
 |---|---|---|
 | Stubbing | 의존성이 반환할 결과 설정 | `when()`, `thenReturn()` |
-| Verification | 의존성이 어떻게 호출되었는지 검증 | `verify()`, `argThat()` |
+| Verification | 의존성이 어떻게 호출되었는지 검증 | `verify()`, `never()`, `verifyNoInteractions()` |
 
 `any()`로 Stubbing하면 어떤 Shelf 객체가 전달되어도 설정한 결과를 반환한다.
 
 따라서 Service가 올바른 정보를 전달했는지 검증하려면 별도 확인이 필요하다.
+
+`argThat()`은 검증을 실행하는 메서드가 아니라, `verify()` 등에 전달할 인자의 조건을 지정하는 매처다.
 
 ```java
 verify(shelfRepositoryPort)
@@ -552,6 +571,15 @@ verify(shelfRepositoryPort)
 
 **Mock이 어떤 결과를 반환하도록 설정했는지와, Service가 올바른 인자를 전달했는지는 별도로 검증해야 한다.**
 
+### 10.6 수정·삭제에서 추가한 DB 검증
+
+- API의 200·204만 확인하지 않고 commit 후 DB를 다시 조회한다. 삭제 테스트는 대상 행이 없고 다른 행은 유지되는지 확인한다.
+- 중복 UPDATE는 Service 사전 검사를 우회해 Adapter를 직접 호출한다. 그래야 DB UNIQUE 위반의 예외 변환과 롤백을 검증할 수 있다.
+- 실패 전후 `List<Map<String, Object>>`를 `containsExactlyInAnyOrderElementsOf(before)`로 비교하면 행 수와 모든 컬럼 값·중복 개수까지 같아야 한다. SQL에 ORDER BY가 없어 순서만 무시한다.
+- 정상 수정은 `createdAt` 유지, `updatedAt` 증가, 반환 시각과 DB 시각 일치를 구분해 검증한다. Adapter 테스트는 기존 시각을 과거 값으로 준비하며, 응답과 DB가 같다는 것만으로 시각 갱신까지 증명되지는 않는다.
+
+테스트 문법의 짧은 예제는 [작성 요약](test-code-cheatsheet.md)에 모았다. 동시 요청 충돌이나 도서 연결 데이터의 삭제까지 검증했다고 해석하지 않는다. 후자는 Feature 5 범위다.
+
 ## 11. 정리
 
 MyShelf의 Shelf 테스트를 통해 다음 내용을 이해했다.
@@ -569,4 +597,4 @@ MyShelf의 Shelf 테스트를 통해 다음 내용을 이해했다.
 
 **핵심은 테스트 코드를 얼마나 많이 작성했는지가 아니라, 각각의 테스트가 무엇을 검증하고 무엇을 검증하지 않는지 정확하게 이해하는 것이다.**
 
-앞으로 Shelf 수정·조회·삭제와 Book 관리 기능을 구현할 때도 이 기준을 활용해 테스트를 설계한다.
+Shelf CRUD 테스트에 이 기준을 적용했다. 이후 Feature 5의 도서·연결 기능도 같은 기준으로 검증 범위를 정한다.
