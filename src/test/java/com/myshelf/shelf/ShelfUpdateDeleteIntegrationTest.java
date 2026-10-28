@@ -91,6 +91,8 @@ class ShelfUpdateDeleteIntegrationTest {
     assertThat(stored.get("name")).isEqualTo(name);
     assertThat(stored.get("description")).isEqualTo("새 설명");
     assertThat(stored.get("created_at")).isEqualTo(before.get("created_at"));
+    assertThat(((Timestamp) stored.get("updated_at")).toInstant())
+        .isAfter(((Timestamp) before.get("updated_at")).toInstant());
 
     JsonNode actual = objectMapper.readTree(response);
     assertThat(Instant.parse(actual.get("createdAt").asString()))
