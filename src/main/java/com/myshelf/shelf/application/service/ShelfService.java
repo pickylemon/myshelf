@@ -1,0 +1,84 @@
+package com.myshelf.shelf.application.service;
+
+import com.myshelf.global.util.UuidGenerator;
+import com.myshelf.shelf.application.port.in.ShelfCreateCommand;
+import com.myshelf.shelf.application.port.in.ShelfCreateUseCase;
+import com.myshelf.shelf.application.port.in.ShelfDeleteUseCase;
+import com.myshelf.shelf.application.port.in.ShelfGetUseCase;
+import com.myshelf.shelf.application.port.in.ShelfListUseCase;
+import com.myshelf.shelf.application.port.in.ShelfUpdateCommand;
+import com.myshelf.shelf.application.port.in.ShelfUpdateUseCase;
+import com.myshelf.shelf.application.port.out.ShelfRepositoryPort;
+import com.myshelf.shelf.domain.Shelf;
+import com.myshelf.shelf.error.ShelfErrorCode;
+import com.myshelf.shelf.exception.ShelfException;
+import java.util.List;
+import java.util.UUID;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+@Service
+@RequiredArgsConstructor
+public class ShelfService
+    implements ShelfCreateUseCase,
+        ShelfListUseCase,
+        ShelfGetUseCase,
+        ShelfUpdateUseCase,
+        ShelfDeleteUseCase {
+  private final ShelfRepositoryPort shelfRepositoryPort;
+
+  @Override
+  public UUID create(ShelfCreateCommand command) {
+    // 1. name 중복 검사
+    if (shelfRepositoryPort.existsByUserIdAndName(command.userId(), command.name())) {
+      throw new ShelfException(ShelfErrorCode.DUPLICATE_NAME);
+    }
+
+    // 2. shelf 도메인 객체 생성
+    UUID shelfId = UuidGenerator.generate(); // v7 UUID 생성
+    Shelf shelf = new Shelf(shelfId, command.name(), command.description(), command.userId());
+
+    // 4. 영속화
+    return shelfRepositoryPort.save(shelf).getId();
+  }
+
+  @Override
+  public List<Shelf> list(UUID userId) {
+    return shelfRepositoryPort.list(userId);
+  }
+
+  @Override
+  public Shelf get(UUID shelfId, UUID userId) {
+    return shelfRepositoryPort
+        .findByIdAndUserId(shelfId, userId)
+        .orElseThrow(() -> new ShelfException(ShelfErrorCode.SHELF_NOT_FOUND));
+  }
+
+  @Override
+  public Shelf update(ShelfUpdateCommand command) {
+    Shelf shelf =
+        new Shelf(command.shelfId(), command.name(), command.description(), command.userId());
+
+    // 1. 소유권 체크
+    shelfRepositoryPort
+        .findByIdAndUserId(shelf.getId(), shelf.getUserId())
+        .orElseThrow(() -> new ShelfException(ShelfErrorCode.SHELF_NOT_FOUND));
+
+    // 2. 중복 이름 검사(fail-fast)
+    if (shelfRepositoryPort.existsByUserIdAndNameExcludingSelf(shelf)) {
+      throw new ShelfException(ShelfErrorCode.DUPLICATE_NAME);
+    }
+
+    // 3. 업데이트
+    return shelfRepositoryPort
+        .update(shelf)
+        .orElseThrow(() -> new ShelfException(ShelfErrorCode.SHELF_NOT_FOUND));
+  }
+
+  @Override
+  public void delete(UUID shelfId, UUID userId) {
+    if (!shelfRepositoryPort.delete(shelfId, userId)) {
+      throw new ShelfException(ShelfErrorCode.SHELF_NOT_FOUND);
+    }
+  }
+}

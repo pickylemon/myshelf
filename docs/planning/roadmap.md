@@ -9,11 +9,25 @@ MyShelf는 Spring Boot 기반 백엔드 프로젝트로, 핵심 기능 구현을
 | 1. 백엔드 기반 구축 | 헥사고날 아키텍처, 회원가입, 로그인, JWT 발급 | 완료 |
 | 2. 로컬 실행 환경 구축 | PostgreSQL, Docker, Docker Compose, 테스트 DB 분리 및 자동 생성 | 완료 |
 | 3. CI 및 배포 기반 구축 | GitHub Actions 기반 빌드·테스트 자동화, Docker 이미지 빌드·게시, Jenkins 기초 실습 | 진행 중 |
-| 4. 핵심 기능 개발 | 도서 관리, 개인 서재, 독서 상태 및 기록 | 예정 |
+| 4. 핵심 기능 개발 | 도서 관리, 개인 서재, 독서 상태 및 기록 | 진행 중: Shelf CRUD 구현·테스트 완료 |
 | 5. 성능 및 비동기 처리 | Redis 캐싱, 비동기 처리, Kafka 적용 검토 | 예정 |
 | 6. 운영 배포 및 CD 구축 | 운영 환경 구성, 배포 자동화, 배포 후 상태 검사 및 안정성 검증 | 예정 |
 
-JWT 발급과 OAuth2 Resource Server 기반 요청 인증을 구현했다. 서명·만료·사용자 UUID 형식 검증과 인증 실패 ProblemDetail 응답은 테스트 전용 엔드포인트를 포함한 통합 테스트로 검증했으며, 실제 도서·서재 API는 핵심 기능 개발 단계에서 추가한다.
+JWT 발급과 OAuth2 Resource Server 기반 요청 인증을 구현했다. Feature 4에서 실제 Shelf CRUD API에 인증된 사용자 UUID와 소유권 검증을 연결했다. 도서 기능은 아직 구현하지 않았다.
+
+### 기능별 진행 상태
+
+위 표의 단계 번호와 기능 브랜치의 Feature 번호는 별개다.
+
+| Feature | 범위 | 상태 |
+|---|---|---|
+| Feature 4 | Shelf 생성·목록/상세 조회·수정·삭제, 소유권·중복·DB 정합성 | 구현·테스트 완료, 종료 전 빌드·CI 최종 확인 필요 |
+| Feature 5 | 도서 검색·등록, UserBook·ShelfBook, 독서 상태, Shelf 내 도서 목록 및 연관 삭제 정책 | 예정 |
+| Feature 6 | 필사 | 예정 |
+
+Feature 4는 Service 단위·웹 계층·PostgreSQL Adapter·실제 JWT API 통합 테스트를 갖췄다. 2026-10-28 확인한 로컬 테스트 결과 파일은 프로젝트 전체 123개 통과(실패·오류·스킵 0)이며, Shelf 테스트만의 개수가 아니다. 로컬 `clean test` 통과와 `build`·Spotless·CI 통과는 구분한다.
+
+최종 빌드와 해당 PR의 CI 확인 후 Feature 4 종료·병합 상태를 반영한다. [기능 범위](feature-4-shelf-management.md)를 참고한다.
 
 ### CI/CD 단계 구분
 

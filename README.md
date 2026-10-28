@@ -11,18 +11,22 @@
 
 ## 1. 주요 기능
 
-- 회원가입 / 로그인
-- JWT 발급
-- JWT 기반 요청 인증
-- 도서 등록 / 조회 / 수정 / 삭제
-- 내 서재 관리
-- 독서 상태 관리
-    - 읽고 싶은 책
-    - 읽는 중
-    - 완독
-- 완독 기록 및 독서 통계
-- 도서 조회 캐싱
-- 비동기 이벤트 처리
+**현재 구현**
+
+- 회원가입, 이메일·비밀번호 로그인 및 JWT 발급
+- OAuth2 Resource Server 기반 JWT 요청 인증
+- Shelf 생성·목록 조회·상세 조회·수정·삭제 (Feature 4)
+- 인증된 사용자 UUID 기반 소유권 검증, 사용자별 Shelf 이름 중복 방지
+- 요청 Validation 및 ProblemDetail 오류 응답
+
+**이후 범위**
+
+- Feature 5: 도서 검색·등록, UserBook 관리, ShelfBook 연결 및 독서 상태 관리
+- Feature 5: Shelf 내 도서 목록 조회 및 연결 데이터가 있는 Shelf의 삭제 정책·검증
+- Feature 6: 필사 기능
+- 후속 검토: 독서 통계, Redis 캐싱, Kafka 기반 비동기 처리 및 AI Agent
+
+진행 상태와 계획은 [로드맵](docs/planning/roadmap.md)에서 관리합니다.
 
 ---
 
@@ -41,10 +45,10 @@
 ### Database / Infrastructure
 
 - PostgreSQL
-- Redis
-- Apache Kafka
 - Docker
 - Docker Compose
+
+Redis와 Kafka는 현재 도입하지 않았으며 후속 Feature에서 필요성을 검토합니다.
 
 ### Test
 
@@ -58,24 +62,22 @@
 헥사고날 아키텍처를 기반으로 구성합니다.
 
 ```text
-domain
-├── model
-└── ...
-
-application
-├── port
-│   ├── in
-│   └── out
-└── service
-
-adapter
-├── in
-│   └── web
-└── out
-    ├── persistence
-    ├── redis
-    └── kafka
+com.myshelf
+├── user
+├── auth
+├── shelf
+│   ├── domain
+│   ├── application
+│   │   ├── port/in
+│   │   ├── port/out
+│   │   └── service
+│   └── adapter
+│       ├── in/web
+│       └── out/persistence
+└── global
 ```
+
+계층별 책임은 [아키텍처 개요](docs/architecture/overview.md)를 참고합니다.
 
 ---
 
@@ -136,6 +138,18 @@ docker compose down
 PostgreSQL 데이터는 Docker Named Volume에 보관되며, 일반적인 `docker compose down`으로는 삭제되지 않습니다.
 
 **주의:** `docker compose down -v`는 데이터가 저장된 볼륨까지 삭제할 수 있습니다.
+
+### 테스트 및 API 문서
+
+통합 테스트는 `test` 프로필의 `myshelf_test` DB를 사용합니다. PostgreSQL을 실행하고 Gradle 실행 환경에 테스트 DB의 `DB_PASSWORD`를 설정한 뒤 실행합니다. 테스트용 JWT Secret은 테스트 설정에 정의되어 있습니다.
+
+```bash
+./gradlew clean build
+```
+
+Windows PowerShell에서는 `.\gradlew.bat clean build`를 사용합니다. 이 명령은 테스트, Spotless 검사 및 패키징을 포함하며 CI 통과 여부는 PR에서 별도로 확인합니다.
+
+Swagger UI 기본 경로는 `/swagger-ui.html`, OpenAPI JSON은 `/v3/api-docs`입니다. 의존성과 공개 경로는 구성되어 있으나, JWT Bearer 문서 설정 및 실제 UI 실행 검증은 아직 남아 있습니다. [현재 상태](docs/architecture/overview.md#swagger--openapi-현황)를 참고합니다.
 
 ### 관련 문서
 
