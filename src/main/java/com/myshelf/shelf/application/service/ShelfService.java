@@ -48,7 +48,7 @@ public class ShelfService
   }
 
   @Override
-  public Shelf get(UUID userId, UUID shelfId) {
+  public Shelf get(UUID shelfId, UUID userId) {
     return shelfRepositoryPort
         .findByIdAndUserId(shelfId, userId)
         .orElseThrow(() -> new ShelfException(ShelfErrorCode.SHELF_NOT_FOUND));

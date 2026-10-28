@@ -51,7 +51,7 @@ public class ShelfController {
   public ResponseEntity<ShelfResponse> getShelfDetail(
       @AuthenticationPrincipal Jwt jwt, @PathVariable UUID shelfId) {
     UUID userId = resolveUserId(jwt);
-    Shelf shelf = shelfGetUseCase.get(userId, shelfId);
+    Shelf shelf = shelfGetUseCase.get(shelfId, userId);
 
     return ResponseEntity.ok(ShelfResponse.from(shelf));
   }
@@ -66,7 +66,7 @@ public class ShelfController {
       @PathVariable UUID shelfId,
       @RequestBody @Valid ShelfUpdateRequest shelfUpdateRequest) {
     UUID userId = resolveUserId(jwt);
-    ShelfUpdateCommand command = shelfUpdateRequest.toCommand(userId, shelfId);
+    ShelfUpdateCommand command = shelfUpdateRequest.toCommand(shelfId, userId);
     Shelf shelf = shelfUpdateUseCase.update(command);
 
     return ResponseEntity.ok(ShelfResponse.from(shelf));

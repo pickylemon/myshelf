@@ -8,7 +8,7 @@ import java.util.UUID;
 
 public record ShelfUpdateRequest(
     @NotBlank @Size(max = 255) String name, @Nullable @Size(max = 255) String description) {
-  public ShelfUpdateCommand toCommand(UUID userId, UUID shelfId) {
-    return new ShelfUpdateCommand(userId, shelfId, name, description);
+  public ShelfUpdateCommand toCommand(UUID shelfId, UUID userId) {
+    return new ShelfUpdateCommand(shelfId, userId, name, description);
   }
 }

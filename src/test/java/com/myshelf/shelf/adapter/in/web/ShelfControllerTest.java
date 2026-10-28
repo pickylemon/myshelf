@@ -255,7 +255,7 @@ class ShelfControllerTest {
     UUID shelfId = UUID.randomUUID();
     Instant createdAt = Instant.parse("2026-10-01T01:02:03Z");
     Instant updatedAt = Instant.parse("2026-10-02T04:05:06Z");
-    when(shelfGetUseCase.get(USER_ID, shelfId))
+    when(shelfGetUseCase.get(shelfId, USER_ID))
         .thenReturn(new Shelf(shelfId, "내 서재", description, USER_ID, createdAt, updatedAt));
 
     mockMvc
@@ -273,14 +273,14 @@ class ShelfControllerTest {
         .andExpect(jsonPath("$.updatedAt").value("2026-10-02T04:05:06Z"))
         .andExpect(jsonPath("$.userId").doesNotExist());
 
-    verify(shelfGetUseCase).get(USER_ID, shelfId);
+    verify(shelfGetUseCase).get(shelfId, USER_ID);
   }
 
   /** UseCase가 던진 조회 부재 예외는 404 ProblemDetail로 변환한다. */
   @Test
   void 서재_부재_예외를_404_ProblemDetail로_반환한다() throws Exception {
     UUID shelfId = UUID.randomUUID();
-    when(shelfGetUseCase.get(USER_ID, shelfId))
+    when(shelfGetUseCase.get(shelfId, USER_ID))
         .thenThrow(new ShelfException(ShelfErrorCode.SHELF_NOT_FOUND));
 
     mockMvc
@@ -313,7 +313,7 @@ class ShelfControllerTest {
     UUID shelfId = UUID.randomUUID();
     Instant createdAt = Instant.parse("2026-10-01T01:02:03Z");
     Instant updatedAt = Instant.parse("2026-10-02T04:05:06Z");
-    ShelfUpdateCommand command = new ShelfUpdateCommand(USER_ID, shelfId, "새 이름", "새 설명");
+    ShelfUpdateCommand command = new ShelfUpdateCommand(shelfId, USER_ID, "새 이름", "새 설명");
     when(shelfUpdateUseCase.update(command))
         .thenReturn(new Shelf(shelfId, "새 이름", "새 설명", USER_ID, createdAt, updatedAt));
 

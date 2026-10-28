@@ -124,7 +124,7 @@ class ShelfServiceTest {
     Shelf shelf = new Shelf(shelfId, "내 서재", "설명", userId);
     when(shelfRepositoryPort.findByIdAndUserId(shelfId, userId)).thenReturn(Optional.of(shelf));
 
-    assertThat(shelfService.get(userId, shelfId)).isSameAs(shelf);
+    assertThat(shelfService.get(shelfId, userId)).isSameAs(shelf);
 
     verify(shelfRepositoryPort).findByIdAndUserId(shelfId, userId);
   }
@@ -136,7 +136,7 @@ class ShelfServiceTest {
     UUID shelfId = UUID.randomUUID();
     when(shelfRepositoryPort.findByIdAndUserId(shelfId, userId)).thenReturn(Optional.empty());
 
-    assertThatThrownBy(() -> shelfService.get(userId, shelfId))
+    assertThatThrownBy(() -> shelfService.get(shelfId, userId))
         .isInstanceOfSatisfying(
             ShelfException.class,
             ex -> assertThat(ex.getErrorCode()).isEqualTo(ShelfErrorCode.SHELF_NOT_FOUND));
@@ -166,7 +166,7 @@ class ShelfServiceTest {
 
     // when
     Shelf result =
-        shelfService.update(new ShelfUpdateCommand(userId, shelfId, newName, description));
+        shelfService.update(new ShelfUpdateCommand(shelfId, userId, newName, description));
 
     // then
     assertThat(result).isSameAs(updatedShelf);
@@ -197,7 +197,7 @@ class ShelfServiceTest {
         .thenReturn(false);
     when(shelfRepositoryPort.update(any(Shelf.class))).thenReturn(Optional.of(updatedShelf));
 
-    Shelf result = shelfService.update(new ShelfUpdateCommand(userId, shelfId, name, "새 설명"));
+    Shelf result = shelfService.update(new ShelfUpdateCommand(shelfId, userId, name, "새 설명"));
 
     assertThat(result).isSameAs(updatedShelf);
     ArgumentCaptor<Shelf> captor = ArgumentCaptor.forClass(Shelf.class);
@@ -223,7 +223,7 @@ class ShelfServiceTest {
     // when, then
     assertThatThrownBy(
             () ->
-                shelfService.update(new ShelfUpdateCommand(userId, shelfId, newName, description)))
+                shelfService.update(new ShelfUpdateCommand(shelfId, userId, newName, description)))
         .isInstanceOfSatisfying(
             ShelfException.class,
             ex -> assertThat(ex.getErrorCode()).isEqualTo(ShelfErrorCode.SHELF_NOT_FOUND));
@@ -251,7 +251,7 @@ class ShelfServiceTest {
     // when, then
     assertThatThrownBy(
             () ->
-                shelfService.update(new ShelfUpdateCommand(userId, shelfId, newName, description)))
+                shelfService.update(new ShelfUpdateCommand(shelfId, userId, newName, description)))
         .isInstanceOfSatisfying(
             ShelfException.class,
             ex -> assertThat(ex.getErrorCode()).isEqualTo(ShelfErrorCode.DUPLICATE_NAME));
@@ -285,7 +285,7 @@ class ShelfServiceTest {
     // when, then
     assertThatThrownBy(
             () ->
-                shelfService.update(new ShelfUpdateCommand(userId, shelfId, newName, description)))
+                shelfService.update(new ShelfUpdateCommand(shelfId, userId, newName, description)))
         .isInstanceOfSatisfying(
             ShelfException.class,
             ex -> assertThat(ex.getErrorCode()).isEqualTo(ShelfErrorCode.SHELF_NOT_FOUND));
@@ -307,7 +307,7 @@ class ShelfServiceTest {
     when(shelfRepositoryPort.update(any(Shelf.class))).thenThrow(duplicate);
 
     assertThatThrownBy(
-            () -> shelfService.update(new ShelfUpdateCommand(userId, shelfId, "서재2", null)))
+            () -> shelfService.update(new ShelfUpdateCommand(shelfId, userId, "서재2", null)))
         .isSameAs(duplicate);
 
     verify(shelfRepositoryPort).update(any(Shelf.class));

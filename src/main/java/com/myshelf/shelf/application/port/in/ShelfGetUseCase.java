@@ -4,5 +4,5 @@ import com.myshelf.shelf.domain.Shelf;
 import java.util.UUID;
 
 public interface ShelfGetUseCase {
-  Shelf get(UUID userId, UUID shelfId);
+  Shelf get(UUID shelfId, UUID userId);
 }

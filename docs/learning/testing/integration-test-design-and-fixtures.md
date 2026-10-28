@@ -200,7 +200,7 @@ Shelf 조회 API
 
 여기서 인증 실패와 소유권 조건에 맞는 리소스가 없는 상황은 구분한다.
 
-현재 Shelf 단건 조회는 `ShelfService.get(userId, shelfId)`에서
+현재 Shelf 단건 조회는 `ShelfService.get(shelfId, userId)`에서
 `ShelfRepositoryPort.findByIdAndUserId(shelfId, userId)`를 호출한다.
 Persistence Adapter와 JPA Repository도 동일한 이름과 인자 순서로 조회한다.
 조회 결과가 없으면 Service에서 `SHELF_NOT_FOUND(404)`로 변환한다.

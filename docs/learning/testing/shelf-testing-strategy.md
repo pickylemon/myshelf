@@ -51,9 +51,9 @@ Service가 의존하는 Port를 Mock으로 대체한다.
 
 수정 테스트는 소유권 조회 → 자기 자신을 제외한 이름 중복 검사 → 수정 호출 순서를 검증하고, 중복·부재 시 후속 작업을 하지 않는지 확인한다. 삭제 테스트는 Port의 성공 여부를 정상 종료 또는 `SHELF_NOT_FOUND`로 처리하는지 검증한다. 실제 소유자 조건과 UNIQUE 동작은 DB 테스트의 책임이다.
 
-단건 조회에서는 `ShelfService.get(userId, shelfId)`가 Port의 `findByIdAndUserId(shelfId, userId)`를 호출하는지, 빈 결과를 `SHELF_NOT_FOUND`로 변환하는지 검증한다.
+단건 조회에서는 `ShelfService.get(shelfId, userId)`가 Port의 `findByIdAndUserId(shelfId, userId)`를 호출하는지, 빈 결과를 `SHELF_NOT_FOUND`로 변환하는지 검증한다.
 
-Mock 설정과 호출 검증에서도 Port의 인자 순서인 **Shelf ID → 사용자 ID**를 사용한다.
+개별 Shelf의 조회·삭제 메서드와 수정 Command의 첫 두 인자는 **Shelf ID → 사용자 ID** 순서로 통일한다. Mock 설정과 호출 검증도 같은 순서를 사용한다. 단, `existsByUserIdAndNameAndIdNot` 같은 파생 쿼리는 메서드 이름의 조건 순서를 따른다.
 
 **단위 테스트는 전체 호출 체인을 검증하는 것이 아니라 특정 단위의 동작을 격리해서 검증한다.**
 
