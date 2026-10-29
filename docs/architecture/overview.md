@@ -14,6 +14,14 @@ MyShelf 백엔드는 도메인 단위로 기능을 분리하고,
 
 ---
 
+## 도메인 모델링 원칙
+
+MyShelf는 기술적 구조보다 서비스의 목적과 도메인 요구사항을 먼저 고려하여 핵심 모델을 정의한다.
+
+제품 요구사항에서 출발한 도메인 모델링 과정과 헥사고날 아키텍처의 관계는 [도메인 모델링 원칙](domain-modeling-principles.md)에 정리한다.
+
+---
+
 ## 주요 도메인
 
 현재 구현된 기능 패키지는 다음과 같다. `book` 및 도서 연결 기능은 Feature 5 범위다.
@@ -250,3 +258,4 @@ Docker Compose 기반 로컬 실행과 PostgreSQL·Flyway, GitHub Actions CI 및
 
 현재 구조는 이러한 외부 기술이 추가되더라도
 Domain과 Application 계층의 변경을 최소화할 수 있도록 구성한다.
+
