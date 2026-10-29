@@ -1,4 +1,7 @@
 package com.myshelf.book.adapter.in.web;
 
-public record ExternalBookSearchResponse(
-    ExternalBookResponse externalBookResponse, int page, int pageSize, long totalCount) {}
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import java.util.List;
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+public record ExternalBookSearchResponse(List<ExternalBookResponse> books, int totalCount) {}

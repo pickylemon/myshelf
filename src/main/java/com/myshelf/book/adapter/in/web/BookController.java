@@ -1,5 +1,6 @@
 package com.myshelf.book.adapter.in.web;
 
+import com.myshelf.book.application.dto.ExternalBookSearchResult;
 import com.myshelf.book.application.port.in.ExternalBookSearchUseCase;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import lombok.RequiredArgsConstructor;
@@ -16,5 +17,9 @@ public class BookController {
 
   @GetMapping("/books/search")
   public ResponseEntity<ExternalBookSearchResponse> searchExternalBooks(
-      @RequestParam String keyword, @RequestParam(defaultValue = "1") int page) {}
+      @RequestParam String keyword, @RequestParam(defaultValue = "1") int page) {
+
+    ExternalBookSearchResult searchResult = externalBookSearchUseCase.search(keyword, page);
+    return ResponseEntity.ok(ExternalBookSearchResponse.from(searchResult));
+  }
 }
