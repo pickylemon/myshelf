@@ -1,7 +1,11 @@
 package com.myshelf.book.adapter.in.web;
 
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.myshelf.book.application.dto.ExternalBookSearchResult;
 import java.util.List;
+import org.jspecify.annotations.Nullable;
 
-@JsonIgnoreProperties(ignoreUnknown = true)
-public record ExternalBookSearchResponse(List<ExternalBookResponse> books, int totalCount) {}
+public record ExternalBookSearchResponse(List<ExternalBookResponse> books, boolean hasNext) {
+  public static @Nullable ExternalBookSearchResponse from(ExternalBookSearchResult searchResult) {
+    return null;
+  }
+}

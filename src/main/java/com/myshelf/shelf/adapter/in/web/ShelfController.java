@@ -1,5 +1,6 @@
 package com.myshelf.shelf.adapter.in.web;
 
+import com.myshelf.auth.adapter.in.security.JwtUserIdResolver;
 import com.myshelf.shelf.application.port.in.ShelfCreateCommand;
 import com.myshelf.shelf.application.port.in.ShelfCreateUseCase;
 import com.myshelf.shelf.application.port.in.ShelfDeleteUseCase;
@@ -67,7 +68,7 @@ public class ShelfController {
               schema = @Schema(implementation = ProblemDetail.class)))
   public ResponseEntity<UUID> createShelf(
       @AuthenticationPrincipal Jwt jwt, @RequestBody @Valid ShelfCreateRequest shelfCreateRequest) {
-    UUID userId = resolveUserId(jwt);
+    UUID userId = JwtUserIdResolver.resolveUserId(jwt);
     ShelfCreateCommand shelfCreateCommand = shelfCreateRequest.toCommand(userId);
     UUID shelfId = shelfCreateUseCase.create(shelfCreateCommand);
 
@@ -78,7 +79,7 @@ public class ShelfController {
   @Operation(summary = "서재 목록 조회")
   @ApiResponse(responseCode = "200", description = "서재 목록 반환. 없으면 빈 배열")
   public ResponseEntity<List<ShelfResponse>> getShelves(@AuthenticationPrincipal Jwt jwt) {
-    UUID userId = resolveUserId(jwt);
+    UUID userId = JwtUserIdResolver.resolveUserId(jwt);
     List<Shelf> shelves = shelfListUseCase.list(userId);
     List<ShelfResponse> responses = shelves.stream().map(ShelfResponse::from).toList();
 
@@ -98,14 +99,10 @@ public class ShelfController {
               schema = @Schema(implementation = ProblemDetail.class)))
   public ResponseEntity<ShelfResponse> getShelfDetail(
       @AuthenticationPrincipal Jwt jwt, @PathVariable UUID shelfId) {
-    UUID userId = resolveUserId(jwt);
+    UUID userId = JwtUserIdResolver.resolveUserId(jwt);
     Shelf shelf = shelfGetUseCase.get(shelfId, userId);
 
     return ResponseEntity.ok(ShelfResponse.from(shelf));
-  }
-
-  private UUID resolveUserId(Jwt jwt) {
-    return UUID.fromString(jwt.getSubject());
   }
 
   @PutMapping("/{shelfId}")
@@ -133,7 +130,7 @@ public class ShelfController {
       @AuthenticationPrincipal Jwt jwt,
       @PathVariable UUID shelfId,
       @RequestBody @Valid ShelfUpdateRequest shelfUpdateRequest) {
-    UUID userId = resolveUserId(jwt);
+    UUID userId = JwtUserIdResolver.resolveUserId(jwt);
     ShelfUpdateCommand command = shelfUpdateRequest.toCommand(shelfId, userId);
     Shelf shelf = shelfUpdateUseCase.update(command);
 
@@ -153,7 +150,7 @@ public class ShelfController {
               schema = @Schema(implementation = ProblemDetail.class)))
   public ResponseEntity<Void> deleteShelf(
       @AuthenticationPrincipal Jwt jwt, @PathVariable UUID shelfId) {
-    UUID userId = resolveUserId(jwt);
+    UUID userId = JwtUserIdResolver.resolveUserId(jwt);
     shelfDeleteUseCase.delete(shelfId, userId);
 
     return ResponseEntity.noContent().build();

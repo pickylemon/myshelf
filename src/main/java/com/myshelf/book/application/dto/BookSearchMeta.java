@@ -2,7 +2,7 @@ package com.myshelf.book.application.dto;
 
 import java.time.LocalDate;
 
-public record ExternalBookResult(
+public record BookSearchMeta(
     String isbn,
     String title,
     String author,

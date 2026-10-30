@@ -6,5 +6,5 @@ import java.util.List;
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record NationalLibrarySearchResponse(
-    @JsonProperty("docs") int totalCount,
-    @JsonProperty("TOTAL_COUNT") List<NationalLibraryBookResponse> books) {}
+    @JsonProperty("TOTAL_COUNT") int totalCount,
+    @JsonProperty("docs") List<NationalLibraryBookResponse> books) {}

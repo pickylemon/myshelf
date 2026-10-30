@@ -1,3 +1,5 @@
 package com.myshelf.book.application.dto;
 
-public record ExternalBookSearchResult() {}
+import java.util.List;
+
+public record ExternalBookSearchResult(List<BookSearchItem> books, boolean hasNext) {}
