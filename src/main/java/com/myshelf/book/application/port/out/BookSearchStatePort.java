@@ -1,6 +1,6 @@
 package com.myshelf.book.application.port.out;
 
-import com.myshelf.book.adapter.out.memory.BookSearchState;
+import com.myshelf.book.application.model.BookSearchState;
 import java.util.Optional;
 import java.util.UUID;
 

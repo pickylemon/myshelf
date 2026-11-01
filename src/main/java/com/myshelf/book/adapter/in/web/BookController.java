@@ -4,6 +4,7 @@ import com.myshelf.auth.adapter.in.security.JwtUserIdResolver;
 import com.myshelf.book.application.dto.ExternalBookSearchResult;
 import com.myshelf.book.application.port.in.ExternalBookSearchUseCase;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
+import jakarta.validation.constraints.NotBlank;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -23,10 +24,11 @@ public class BookController {
   // 최초 도서 검색
   @GetMapping("/books/search")
   public ResponseEntity<ExternalBookSearchResponse> search(
-      @AuthenticationPrincipal Jwt jwt, @RequestParam String keyword) {
+      @AuthenticationPrincipal Jwt jwt, @RequestParam @NotBlank String keyword) {
 
     UUID userId = JwtUserIdResolver.resolveUserId(jwt);
-    ExternalBookSearchResult searchResult = externalBookSearchUseCase.search(userId, keyword);
+    ExternalBookSearchResult searchResult =
+        externalBookSearchUseCase.search(userId, keyword.strip());
     return ResponseEntity.ok(ExternalBookSearchResponse.from(searchResult));
   }
 

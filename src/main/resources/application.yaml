@@ -11,9 +11,18 @@ spring:
     enabled: true
     locations: classpath:db/migration
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      database: 0
+
 jwt:
   secret: ${JWT_SECRET}
   access-token-expiration: 30m
 
 national-library:
   api-key : ${NATIONAL_LIBRARY_API_KEY}
+  # 초기 제한값이며 외부 API 응답 시간 측정 후 조정한다.
+  connect-timeout-ms: 2000
+  read-timeout-ms: 5000

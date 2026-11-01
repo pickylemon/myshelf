@@ -1,4 +1,4 @@
-package com.myshelf.book.adapter.out.memory;
+package com.myshelf.book.application.model;
 
 import com.myshelf.book.application.dto.BookSearchMeta;
 import com.myshelf.book.application.port.out.BookSearchField;
