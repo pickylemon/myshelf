@@ -10,9 +10,9 @@
 
 ### 현재 구현 상태
 
-Service의 검색 상태 진행과 외부 조회·DB 서재 조회는 연결되어 있다. 다만 `ExternalBookSearchResponse.from()`은 현재 `null`을 반환하며, `ExternalBookSearchResult`와 응답 DTO에 `searchId`가 없다. 따라서 **아래 흐름의 HTTP 응답과 클라이언트의 더 보기 연결은 미완성**이다. `searchId`를 포함한 응답은 구현해야 할 계약이다.
+최초 검색과 더 보기의 HTTP 응답 변환을 구현했다. 두 응답 모두 `searchId`, `books`, `hasNext`를 반환하며, 각 도서에는 사용자별 등록 서재 목록을 포함한다. 연결된 서재가 없으면 빈 배열을 반환한다.
 
-현재 활성 저장소는 `InMemoryBookSearchStateStore`다. `RedisBookSearchStateStore`는 메서드 골격만 있으며, 동작하는 Redis 저장소는 아직 구현하지 않았다.
+`redis` 프로필에서는 `RedisBookSearchStateStore`, 그 외에는 `InMemoryBookSearchStateStore`를 사용한다. Compose의 local·prod 설정은 `redis` 프로필을 함께 활성화한다. Redis 세션은 마지막 저장부터 30분 후 만료된다. InMemory 저장소에는 TTL이 없다.
 
 ## 데이터 흐름
 
@@ -26,7 +26,7 @@ Service의 검색 상태 진행과 외부 조회·DB 서재 조회는 연결되�
               BookSearchStatePort        ExternalBookSearchPort
               (세션 상태 저장·조회)                │
                        │                 NationalLibraryBookAdapter
-                    InMemory                ├─ TITLE 조회
+                 Redis / InMemory           ├─ TITLE 조회
                                            ├─ AUTHOR 조회
                                            └─ PUBLISHER 조회
                                                    │
@@ -34,7 +34,7 @@ Service의 검색 상태 진행과 외부 조회·DB 서재 조회는 연결되�
                                                    │
                                    최대 20권 추출 / DB 서재 조회
                                                    │
-                        searchId + books + hasNext 반환 (응답 연결 예정)
+                        searchId + books + hasNext 반환
 ```
 
 ## 책임 경계
@@ -59,7 +59,7 @@ Service의 검색 상태 진행과 외부 조회·DB 서재 조회는 연결되�
 | `BookSearchState` | `ExternalBookSearchService` | `userId`, `keyword`, `pendingBooks`, `seenIsbns`, `nextPageByField` |
 | `BookShelfInfo` | Persistence Adapter | 등록된 서재 ID·이름 |
 | `BookSearchItem` | `ExternalBookSearchService` | 도서 메타데이터 + 사용자별 등록 서재 목록 |
-| `ExternalBookSearchResult` | `ExternalBookSearchService` | 최대 20권의 `books`, `hasNext` (`searchId` 추가 필요) |
+| `ExternalBookSearchResult` | `ExternalBookSearchService` | 최대 20권의 `books`, `hasNext`, `searchId` |
 
 현재 `BookRegistrationLookupPort`는 ISBN별 `BookShelfInfo` 목록만 반환하며, 독서 상태는 조회하지 않는다. 조회 SQL은 `ShelfBook` 연결이 있는 도서를 대상으로 하므로, 서재 목록이 없다는 사실만으로 `UserBook` 미등록을 판단할 수 없다.
 
@@ -70,14 +70,16 @@ Service의 검색 상태 진행과 외부 조회·DB 서재 조회는 연결되�
 1. `searchId`를 생성하고 필드별 조회 위치를 모두 1페이지로 초기화한다.
 2. 각 필드의 외부 결과를 병렬 조회하고 ISBN 중복을 제거한다.
 3. `pendingBooks`에서 최대 20권을 골라 등록 정보를 조회한다.
-4. 미반환 도서나 다음 조회 위치가 남으면 상태를 저장하고, 모두 소진되면 삭제한다. Service는 `books`와 `hasNext`를 담은 결과 DTO를 반환한다. HTTP 응답 변환과 `searchId` 전달은 아직 미구현이다.
+4. 미반환 도서나 다음 조회 위치가 남으면 상태를 저장하고, 모두 소진되면 삭제한다. `searchId`, `books`, `hasNext`를 응답한다.
 
 ### 더 보기 `loadMore(userId, searchId)`
 
-1. 상태를 조회하고 요청 사용자와 세션 소유자가 같은지 확인한다.
+1. 같은 사용자·검색 ID의 처리 중 요청이 있으면 409로 거부한다. 이후 상태를 조회하고 소유자를 확인한다. 없거나 타인 소유면 동일하게 404로 처리한다.
 2. `pendingBooks`가 20권 이상이면 **외부 API를 호출하지 않는다**.
-3. 부족하면 `nextPageByField`에 남은 필드만 해당 페이지에서 추가 조회하고, 세션 전체 `seenIsbns`로 중복을 제거한다. 20권을 확보하거나 모든 필드가 소진될 때까지 반복한다.
+3. 부족하면 `nextPageByField`에 남은 필드만 추가 조회하고, 세션 전체 `seenIsbns`로 중복을 제거한다. 20권 확보·필드 소진·최대 2라운드 중 하나에 도달하면 반복을 멈춘다.
 4. 최대 20권을 선택하고 등록 서재 목록을 조회한 뒤, 결과·상태를 갱신한다.
+
+중복 요청 차단은 상태 조회부터 저장·삭제까지 유지하고 `finally`에서 해제한다. 단일 JVM 안에서만 동작하며, Redis를 통한 서버 간 분산 잠금은 아니다.
 
 예를 들어 `TITLE=3`, `PUBLISHER=2`만 남았다면 저자 조회는 하지 않는다. **외부 API 페이지 번호는 클라이언트가 보내지 않고 서버가 관리**한다.
 
@@ -87,20 +89,29 @@ Service의 검색 상태 진행과 외부 조회·DB 서재 조회는 연결되�
 |---|---|
 | 외부 API 요청 | 필드별 최대 100건 요청 (실제 허용·응답 결과 검증 필요) |
 | 사용자 응답 | 최대 20권 |
+| 추가 조회 상한 | 최초 검색·더 보기 각각 최대 2라운드. 한 라운드는 남은 필드들의 병렬 조회이며 HTTP 1회가 아님 |
 | 중복 제거 | Adapter 현재 조회 묶음 + Service 검색 세션 전체 |
 | 다음 결과 판단 | 미반환 도서 또는 미조회 외부 페이지 존재 시 `hasNext=true` |
 | 최종 종료 | 미반환 도서와 다음 외부 페이지가 모두 없으면 세션 삭제 |
 
-`hasNext=true` 뒤에 중복 결과만 나와 **빈 다음 응답**이 생길 수 있다. 이것은 불필요한 선조회를 줄이기 위해 수용한 정책이다.
+중복 결과나 조회 상한 때문에 **빈 목록과 `hasNext=true`가 함께 반환될 수 있다.** 더 보기 요청에서 남은 조회 위치를 이어서 사용한다. 이 정책을 선택한 근거는 [ADR의 `hasNext` 정책](../decisions/012-stateful-book-search-pagination.md#hasnext-정책)에 기록한다.
+
+## 오류 처리
+
+| 상황 | 오류 코드 | HTTP |
+|---|---|---|
+| 미인증 | `AUTHENTICATION_FAILED` | 401 |
+| 없는·만료된·타인 소유 검색 세션 | `SEARCH_SESSION_NOT_FOUND` | 404 |
+| 같은 사용자의 동일 검색 요청 처리 중 | `SEARCH_REQUEST_IN_PROGRESS` | 409 |
+| 외부 HTTP·연결 오류 | `EXTERNAL_BOOK_SEARCH_FAILED` | 502 |
+| 외부 응답 누락·변환 실패 | `INVALID_EXTERNAL_BOOK_RESPONSE` | 502 |
+| 외부 호출 시간 초과 | `EXTERNAL_BOOK_SEARCH_TIMEOUT` | 504 |
+| Redis 연결 장애·시간 초과 | `SEARCH_SESSION_STORE_UNAVAILABLE` | 503 |
+
+외부 필드 조회가 하나라도 실패하면 부분 결과를 반환하지 않는다. HTTP 클라이언트의 연결 제한은 기본 2초, 응답 제한은 5초다. 전체 검색 요청의 종료 시간을 보장하는 deadline이나 이미 제출된 작업의 취소 처리는 없다.
 
 ## 검증 및 보완
 
-- [ ] 최초 검색 → 보관 도서로 더 보기 → 버퍼 소진 후 추가 조회
-- [ ] 검색 결과·응답 DTO에 `searchId` 전달 및 HTTP 응답 변환 구현
-- [ ] 중복 ISBN, 결과 0권, 모든 검색 필드 소진
-- [ ] 사용자별 검색 세션 접근 제한
-- [ ] 외부 API 응답 오류·타임아웃 및 반복 조회 횟수 제한
-- [ ] 동일 세션 동시 요청과 TTL 만료 처리
-- [ ] Redis 전환 후 상태 저장·복원 검증
+계층별 테스트 구성·검증 방법·미검증 범위는 [도서 검색 테스트 전략](../learning/testing/book-search-testing-strategy.md#1-무엇을-실제로-연결할-것인가)에 정리한다. 실제 외부 API의 성능·허용량 검증 및 전체 빌드·CI 결과와는 구분한다.
 
-관련 결정: [ADR-012](../decisions/012-stateful-book-search-pagination.md). API 선정 근거: [book-metadata-api-selection.md](../planning/book-metadata-api-selection.md).
+관련 문서: [ADR-012](../decisions/012-stateful-book-search-pagination.md), [API 선정 근거](../planning/book-metadata-api-selection.md), [Redis 검색 세션](../learning/infrastructure/redis-search-session.md), [검색 테스트 전략](../learning/testing/book-search-testing-strategy.md).
