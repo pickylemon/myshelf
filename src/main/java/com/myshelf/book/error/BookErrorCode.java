@@ -12,7 +12,8 @@ public enum BookErrorCode {
   EXTERNAL_BOOK_SEARCH_TIMEOUT("EXTERNAL_BOOK_SEARCH_TIMEOUT", "외부 도서 검색 응답 시간이 초과되었습니다."),
   INVALID_EXTERNAL_BOOK_RESPONSE("INVALID_EXTERNAL_BOOK_RESPONSE", "외부 도서 검색 응답을 처리할 수 없습니다."),
   SEARCH_SESSION_STORE_UNAVAILABLE(
-      "SEARCH_SESSION_STORE_UNAVAILABLE", "검색 세션 저장소에 일시적으로 접근할 수 없습니다.");
+      "SEARCH_SESSION_STORE_UNAVAILABLE", "검색 세션 저장소에 일시적으로 접근할 수 없습니다."),
+  BOOK_METADATA_CACHE_UNAVAILABLE("BOOK_METADATA_CACHE_UNAVAILABLE", "??");
 
   private final String code;
   private final String message;

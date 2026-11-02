@@ -1,5 +1,6 @@
 package com.myshelf.global.config;
 
+import com.myshelf.book.application.dto.BookSearchMeta;
 import com.myshelf.book.application.model.BookSearchState;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -17,6 +18,18 @@ public class RedisConfig {
       RedisConnectionFactory connectionFactory, JsonMapper jsonMapper) {
     RedisTemplate<String, BookSearchState> template = new RedisTemplate<>();
 
+    template.setConnectionFactory(connectionFactory);
+    template.setKeySerializer(new StringRedisSerializer());
+    template.setValueSerializer(
+        new JacksonJsonRedisSerializer<>(jsonMapper, BookSearchState.class));
+
+    return template;
+  }
+
+  @Bean
+  public RedisTemplate<String, BookSearchMeta> bookMetadataRedisTemplate(
+      RedisConnectionFactory connectionFactory, JsonMapper jsonMapper) {
+    RedisTemplate<String, BookSearchMeta> template = new RedisTemplate<>();
     template.setConnectionFactory(connectionFactory);
     template.setKeySerializer(new StringRedisSerializer());
     template.setValueSerializer(

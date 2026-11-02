@@ -7,6 +7,7 @@ import com.myshelf.book.application.dto.ExternalBookFetchResult;
 import com.myshelf.book.application.dto.ExternalBookSearchResult;
 import com.myshelf.book.application.model.BookSearchState;
 import com.myshelf.book.application.port.in.ExternalBookSearchUseCase;
+import com.myshelf.book.application.port.out.BookMetadataCachePort;
 import com.myshelf.book.application.port.out.BookRegistrationLookupPort;
 import com.myshelf.book.application.port.out.BookSearchField;
 import com.myshelf.book.application.port.out.BookSearchStatePort;
@@ -18,14 +19,17 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ExternalBookSearchService implements ExternalBookSearchUseCase {
   private final ExternalBookSearchPort externalBookSearchPort;
   private final BookSearchStatePort bookSearchStatePort;
   private final BookRegistrationLookupPort bookRegistrationLookupPort;
+  private final BookMetadataCachePort bookMetadataCachePort;
 
   private static final int SEARCH_PAGE_SIZE = 20;
   private static final int MAX_FETCH_ROUNDS = 2;
@@ -138,7 +142,21 @@ public class ExternalBookSearchService implements ExternalBookSearchUseCase {
       bookSearchStatePort.delete(searchId);
     }
 
+    // 등록용 메타데이터 저장
+    cacheReturnedBooks(selectedBooks);
+
     // 9. 최종 검색 결과 반환
     return new ExternalBookSearchResult(books, hasNext, searchId);
+  }
+
+  private void cacheReturnedBooks(List<BookSearchMeta> selectedBooks) {
+    try {
+      selectedBooks.forEach(bookMetadataCachePort::save);
+    } catch (BookException e) {
+      if (e.getErrorCode() != BookErrorCode.BOOK_METADATA_CACHE_UNAVAILABLE) {
+        throw e;
+      }
+      log.warn("도서정보를 Redis 캐시에 저장하지 못했습니다. 오류 코드: {}", e.getErrorCode());
+    }
   }
 }
