@@ -32,8 +32,7 @@ public class RedisConfig {
     RedisTemplate<String, BookSearchMeta> template = new RedisTemplate<>();
     template.setConnectionFactory(connectionFactory);
     template.setKeySerializer(new StringRedisSerializer());
-    template.setValueSerializer(
-        new JacksonJsonRedisSerializer<>(jsonMapper, BookSearchState.class));
+    template.setValueSerializer(new JacksonJsonRedisSerializer<>(jsonMapper, BookSearchMeta.class));
 
     return template;
   }

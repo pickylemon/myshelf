@@ -15,12 +15,13 @@ public class BookControllerAdvice {
     BookErrorCode errorCode = e.getErrorCode();
     HttpStatus httpStatus =
         switch (errorCode) {
-          case SEARCH_SESSION_NOT_FOUND -> HttpStatus.NOT_FOUND;
+          case SEARCH_SESSION_NOT_FOUND, BOOK_METADATA_NOT_FOUND -> HttpStatus.NOT_FOUND;
           case SEARCH_REQUEST_IN_PROGRESS -> HttpStatus.CONFLICT;
           case EXTERNAL_BOOK_SEARCH_FAILED, INVALID_EXTERNAL_BOOK_RESPONSE ->
               HttpStatus.BAD_GATEWAY;
           case EXTERNAL_BOOK_SEARCH_TIMEOUT -> HttpStatus.GATEWAY_TIMEOUT;
-          case SEARCH_SESSION_STORE_UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
+          case SEARCH_SESSION_STORE_UNAVAILABLE, BOOK_METADATA_CACHE_UNAVAILABLE ->
+              HttpStatus.SERVICE_UNAVAILABLE;
         };
 
     ProblemDetail problemDetail =

@@ -1,4 +1,4 @@
-package com.myshelf.book.adapter.in.web;
+package com.myshelf.book.adapter.in.web.search;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
@@ -14,7 +14,7 @@ import com.myshelf.book.application.dto.BookSearchItem;
 import com.myshelf.book.application.dto.BookSearchMeta;
 import com.myshelf.book.application.dto.BookShelfInfo;
 import com.myshelf.book.application.dto.ExternalBookSearchResult;
-import com.myshelf.book.application.port.in.ExternalBookSearchUseCase;
+import com.myshelf.book.application.port.in.search.ExternalBookSearchUseCase;
 import com.myshelf.book.error.BookErrorCode;
 import com.myshelf.book.exception.BookException;
 import com.myshelf.global.config.SecurityConfig;
@@ -41,9 +41,9 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 
 /** 검색 예외의 HTTP 응답을 검증한다. 세션 조회와 JWT 자체 검증은 각각 별도 테스트의 책임이다. */
-@WebMvcTest(BookController.class)
+@WebMvcTest(BookSearchController.class)
 @Import({SecurityConfig.class, ProblemDetailAuthenticationEntryPoint.class})
-class BookControllerTest {
+class BookSearchControllerTest {
 
   @Autowired MockMvc mockMvc;
 

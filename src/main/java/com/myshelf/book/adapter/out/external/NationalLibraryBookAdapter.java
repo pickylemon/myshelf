@@ -11,12 +11,7 @@ import java.net.http.HttpTimeoutException;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
@@ -187,5 +182,16 @@ public class NationalLibraryBookAdapter implements ExternalBookSearchPort {
     } catch (DateTimeParseException e) {
       return null;
     }
+  }
+
+  @Override
+  public Optional<BookSearchMeta> findByIsbn(String isbn) {
+    NationalLibrarySearchResponse response = fetchByField("isbn", isbn, 1);
+
+    return response.books().stream()
+        .filter(Objects::nonNull)
+        .filter(book -> isbn.equals(book.isbn()))
+        .findFirst()
+        .map(this::toResult);
   }
 }

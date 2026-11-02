@@ -17,6 +17,7 @@ import com.myshelf.book.application.dto.BookShelfInfo;
 import com.myshelf.book.application.dto.ExternalBookFetchResult;
 import com.myshelf.book.application.dto.ExternalBookSearchResult;
 import com.myshelf.book.application.model.BookSearchState;
+import com.myshelf.book.application.port.out.BookMetadataCachePort;
 import com.myshelf.book.application.port.out.BookRegistrationLookupPort;
 import com.myshelf.book.application.port.out.BookSearchField;
 import com.myshelf.book.application.port.out.BookSearchStatePort;
@@ -52,6 +53,7 @@ class ExternalBookSearchServiceTest {
   @Mock ExternalBookSearchPort externalBookSearchPort;
   @Mock BookSearchStatePort bookSearchStatePort;
   @Mock BookRegistrationLookupPort bookRegistrationLookupPort;
+  @Mock BookMetadataCachePort bookMetadataCachePort;
 
   private ExternalBookSearchService service;
 
@@ -59,7 +61,10 @@ class ExternalBookSearchServiceTest {
   void setUp() {
     service =
         new ExternalBookSearchService(
-            externalBookSearchPort, bookSearchStatePort, bookRegistrationLookupPort);
+            externalBookSearchPort,
+            bookSearchStatePort,
+            bookRegistrationLookupPort,
+            bookMetadataCachePort);
   }
 
   /** 없는 세션(만료 포함)과 타인 소유 세션은 동일한 오류로 거부하고 상태를 변경하지 않는다. */
@@ -184,7 +189,7 @@ class ExternalBookSearchServiceTest {
     InMemoryBookSearchStateStore stateStore = new InMemoryBookSearchStateStore();
     ExternalBookSearchService concurrentService =
         new ExternalBookSearchService(
-            externalBookSearchPort, stateStore, bookRegistrationLookupPort);
+            externalBookSearchPort, stateStore, bookRegistrationLookupPort, bookMetadataCachePort);
     List<BookSearchMeta> pending =
         IntStream.range(0, 41)
             .mapToObj(i -> new BookSearchMeta("isbn-" + i, "도서", null, null, null, null))

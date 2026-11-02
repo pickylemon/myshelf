@@ -6,7 +6,7 @@ import com.myshelf.book.application.dto.BookShelfInfo;
 import com.myshelf.book.application.dto.ExternalBookFetchResult;
 import com.myshelf.book.application.dto.ExternalBookSearchResult;
 import com.myshelf.book.application.model.BookSearchState;
-import com.myshelf.book.application.port.in.ExternalBookSearchUseCase;
+import com.myshelf.book.application.port.in.search.ExternalBookSearchUseCase;
 import com.myshelf.book.application.port.out.BookMetadataCachePort;
 import com.myshelf.book.application.port.out.BookRegistrationLookupPort;
 import com.myshelf.book.application.port.out.BookSearchField;

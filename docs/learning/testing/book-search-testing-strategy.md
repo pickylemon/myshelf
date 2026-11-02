@@ -9,7 +9,7 @@
 | 테스트 클래스 | 실제 검증 대상 | 대체하는 의존성 |
 |---|---|---|
 | `ExternalBookSearchServiceTest` | 검색 진행·페이지 구성·소유권·중복 요청 차단 | Port. 동시성 사례는 InMemory 상태 저장소 사용 |
-| `BookControllerTest` | 입력 검증·사용자 전달·응답 변환·보안 설정 | UseCase·JwtDecoder 등 |
+| `BookSearchControllerTest` | 입력 검증·사용자 전달·응답 변환·보안 설정 | UseCase·JwtDecoder 등 |
 | `NationalLibraryBookAdapterTest` | HTTP 요청 구성·응답 변환·오류 분류 | MockRestServiceServer와 직접 실행 Executor |
 | `RedisBookSearchStateStoreTest` | 연결 장애와 예외 변환 범위 | RedisTemplate |
 | `RedisBookSearchStateStoreIntegrationTest` | 실제 Redis 직렬화·저장·삭제·만료 | PostgreSQL·외부 API는 로딩하지 않음 |
