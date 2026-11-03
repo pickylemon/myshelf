@@ -1,8 +1,13 @@
 package com.myshelf.book.domain;
 
-import lombok.Getter;
-import lombok.RequiredArgsConstructor;
+import java.time.Instant;
+import java.util.UUID;
 
-@Getter
-@RequiredArgsConstructor
-public class ShelfBook {}
+public record ShelfBook(
+    UUID id, UUID shelfId, UUID userBookId, Integer position, Instant createdAt) {
+
+  // 신규 ShelfBook 생성용
+  public ShelfBook(UUID id, UUID shelfId, UUID userBookId) {
+    this(id, shelfId, userBookId, null, null);
+  }
+}
