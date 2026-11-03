@@ -35,7 +35,7 @@ SELECT EXISTS (
 |---|---|
 | 일부 서재에서 책 제거 | 다른 ShelfBook이 남으므로 독서 상태·메모 유지 |
 | 마지막 서재에서 제거 | UserBook은 보존하지만 관리 대상에서 제외 |
-| 연결 0건인 책 재등록 | 기존 UserBook 행 재사용, 독서 상태·메모 초기화 후 ShelfBook 추가 |
+| 연결 0건인 책 재등록 | 기존 행을 재사용하며 [Feature 5의 등록 정책](../../planning/feature-5-book-management.md#36-등록-시-독서-상태와-재등록-처리)에 따라 처리 |
 | 전체 도서 목록 조회 | `EXISTS`로 연결이 있는 UserBook만 조회 |
 
 따라서 현 단계에서는 **`delete_yn`을 추가하지 않고 `EXISTS`를 사용**하기로 했다. `shelf_books.user_book_id` 인덱스도 이미 존재한다.
