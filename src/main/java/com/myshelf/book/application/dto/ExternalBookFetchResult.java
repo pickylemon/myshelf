@@ -1,6 +1,6 @@
 package com.myshelf.book.application.dto;
 
-import com.myshelf.book.application.port.out.BookSearchField;
+import com.myshelf.book.application.port.out.search.BookSearchField;
 import java.util.List;
 import java.util.Map;
 

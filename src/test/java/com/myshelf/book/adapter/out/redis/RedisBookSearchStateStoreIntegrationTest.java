@@ -5,7 +5,7 @@ import static org.awaitility.Awaitility.await;
 
 import com.myshelf.book.application.dto.BookSearchMeta;
 import com.myshelf.book.application.model.BookSearchState;
-import com.myshelf.book.application.port.out.BookSearchField;
+import com.myshelf.book.application.port.out.search.BookSearchField;
 import com.myshelf.global.config.RedisConfig;
 import java.time.Duration;
 import java.time.LocalDate;

@@ -8,7 +8,7 @@ import static org.springframework.test.web.client.response.MockRestResponseCreat
 import static org.springframework.test.web.client.response.MockRestResponseCreators.withSuccess;
 
 import com.myshelf.book.application.dto.ExternalBookFetchResult;
-import com.myshelf.book.application.port.out.BookSearchField;
+import com.myshelf.book.application.port.out.search.BookSearchField;
 import com.myshelf.book.error.BookErrorCode;
 import com.myshelf.book.exception.BookException;
 import java.io.IOException;

@@ -1,18 +1,19 @@
 package com.myshelf.book.adapter.out.persistence;
 
 import com.myshelf.book.application.dto.BookShelfInfo;
-import com.myshelf.book.application.port.out.BookRegistrationLookupPort;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import com.myshelf.book.application.port.out.registration.BookRegistrationLookupPort;
+import com.myshelf.book.application.port.out.registration.BookRepositoryPort;
+import com.myshelf.book.domain.ReadingStatus;
+import com.myshelf.book.domain.ShelfBook;
+import com.myshelf.book.domain.UserBook;
+import java.util.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
 
 @Repository
 @RequiredArgsConstructor
-public class BookRegistrationPersistenceAdapter implements BookRegistrationLookupPort {
+public class BookRegistrationPersistenceAdapter
+    implements BookRegistrationLookupPort, BookRepositoryPort {
   private final ShelfBookJpaRepository shelfBookJpaRepository;
 
   @Override
@@ -28,5 +29,55 @@ public class BookRegistrationPersistenceAdapter implements BookRegistrationLooku
     }
 
     return shelvesGroupByIsbn;
+  }
+
+  @Override
+  public Optional<UserBook> findUserBookByUserIdAndIsbn(UUID userId, String isbn) {
+    return Optional.empty();
+  }
+
+  @Override
+  public boolean exitsShelfBookByShelfIdAndIsbn(UUID shelfId, String isbn) {
+    return false;
+  }
+
+  @Override
+  public boolean existsShelfBookByShelfIdAndIsbn(UUID shelfId, String isbn) {
+    return false;
+  }
+
+  @Override
+  public boolean existsShelfBookByUserBookId(UUID userBookId) {
+    return false;
+  }
+
+  @Override
+  public boolean existsShelfBookByShelfIdAndUserBookId(UUID shelfId, UUID userBookId) {
+    return false;
+  }
+
+  @Override
+  public Optional<Integer> findMaxPositionByShelfId(UUID shelfId) {
+    return Optional.empty();
+  }
+
+  @Override
+  public UserBook createUserBook(UserBook userBook) {
+    return null;
+  }
+
+  @Override
+  public UserBook updateReadingStatus(UUID userBookId, UUID userId, ReadingStatus readingStatus) {
+    return null;
+  }
+
+  @Override
+  public UserBook resetForReregistration(UUID userBookId, UUID userId) {
+    return null;
+  }
+
+  @Override
+  public ShelfBook createShelfBook(ShelfBook shelfBook) {
+    return null;
   }
 }

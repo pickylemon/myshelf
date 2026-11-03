@@ -1,7 +1,7 @@
 package com.myshelf.book.adapter.out.redis;
 
 import com.myshelf.book.application.dto.BookSearchMeta;
-import com.myshelf.book.application.port.out.BookMetadataCachePort;
+import com.myshelf.book.application.port.out.metadata.BookMetadataCachePort;
 import com.myshelf.book.error.BookErrorCode;
 import com.myshelf.book.exception.BookException;
 import java.time.Duration;

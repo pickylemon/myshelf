@@ -1,4 +1,4 @@
-package com.myshelf.book.application.port.out;
+package com.myshelf.book.application.port.out.registration;
 
 import com.myshelf.book.application.dto.BookShelfInfo;
 import java.util.List;

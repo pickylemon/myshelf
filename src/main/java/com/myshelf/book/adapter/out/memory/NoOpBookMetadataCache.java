@@ -1,7 +1,7 @@
 package com.myshelf.book.adapter.out.memory;
 
 import com.myshelf.book.application.dto.BookSearchMeta;
-import com.myshelf.book.application.port.out.BookMetadataCachePort;
+import com.myshelf.book.application.port.out.metadata.BookMetadataCachePort;
 import java.util.Optional;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Component;

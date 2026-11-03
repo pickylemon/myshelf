@@ -1,4 +1,4 @@
-package com.myshelf.book.application.port.out;
+package com.myshelf.book.application.port.out.metadata;
 
 import com.myshelf.book.application.dto.BookSearchMeta;
 import java.util.Optional;

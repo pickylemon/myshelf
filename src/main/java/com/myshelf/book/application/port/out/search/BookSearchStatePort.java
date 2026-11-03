@@ -1,4 +1,4 @@
-package com.myshelf.book.application.port.out;
+package com.myshelf.book.application.port.out.search;
 
 import com.myshelf.book.application.model.BookSearchState;
 import java.util.Optional;

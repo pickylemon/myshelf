@@ -26,6 +26,9 @@ public record ShelfBookAddRequest(@NotEmpty List<@NotNull @Valid BookInput> book
 
   @AssertTrue(message = "요청에 중복된 isbn의 도서가 있습니다.")
   public boolean isIsbnUnique() {
+    if (books == null) {
+      return true; // 목록 누락은 @NotEmpty가 검증한다.
+    }
     Set<String> seen = new HashSet<>();
     for (BookInput book : books) {
       if (book != null && !seen.add(book.isbn())) return false;

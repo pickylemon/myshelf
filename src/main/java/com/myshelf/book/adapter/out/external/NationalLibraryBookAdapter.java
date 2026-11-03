@@ -2,8 +2,8 @@ package com.myshelf.book.adapter.out.external;
 
 import com.myshelf.book.application.dto.BookSearchMeta;
 import com.myshelf.book.application.dto.ExternalBookFetchResult;
-import com.myshelf.book.application.port.out.BookSearchField;
-import com.myshelf.book.application.port.out.ExternalBookSearchPort;
+import com.myshelf.book.application.port.out.search.BookSearchField;
+import com.myshelf.book.application.port.out.search.ExternalBookSearchPort;
 import com.myshelf.book.error.BookErrorCode;
 import com.myshelf.book.exception.BookException;
 import java.net.SocketTimeoutException;

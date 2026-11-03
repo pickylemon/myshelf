@@ -1,4 +1,4 @@
-package com.myshelf.book.application.port.out;
+package com.myshelf.book.application.port.out.registration;
 
 import com.myshelf.book.domain.ReadingStatus;
 import com.myshelf.book.domain.ShelfBook;
@@ -11,7 +11,7 @@ public interface BookRepositoryPort {
   /** 사용자와 ISBN으로 기존 도서를 조회한다. 서재 연결이 없는 도서도 포함한다. */
   Optional<UserBook> findUserBookByUserIdAndIsbn(UUID userId, String isbn);
 
-  Optional<ShelfBook> findShelfBookByShelfIdAndIsbn(UUID shelfId, String isbn);
+  boolean exitsShelfBookByShelfIdAndIsbn(UUID shelfId, String isbn);
 
   boolean existsShelfBookByShelfIdAndIsbn(UUID shelfId, String isbn);
 
@@ -30,8 +30,8 @@ public interface BookRepositoryPort {
   /** 사용자 소유 도서의 독서 상태만 변경하고 메모와 메타데이터는 유지한다. */
   UserBook updateReadingStatus(UUID userBookId, UUID userId, ReadingStatus readingStatus);
 
-  /** 사용자 소유 도서의 재등록 시 요청한 독서 상태를 적용하고 메모를 초기화한다. 메타데이터는 유지한다. */
-  UserBook resetForReregistration(UUID userBookId, UUID userId, ReadingStatus readingStatus);
+  /** 사용자 소유 도서의 재등록 시 메모만 초기화한다. 독서 상태와 메타데이터는 유지한다. */
+  UserBook resetForReregistration(UUID userBookId, UUID userId);
 
   /** 서재와 사용자 도서의 연결을 새로 생성한다. */
   ShelfBook createShelfBook(ShelfBook shelfBook);

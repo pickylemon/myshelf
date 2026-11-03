@@ -1,7 +1,6 @@
 package com.myshelf.book.application.port.in.registration;
 
 import com.myshelf.book.domain.ReadingStatus;
-import jakarta.annotation.Nullable;
 import java.util.List;
 import java.util.UUID;
 
@@ -10,6 +9,6 @@ public record ShelfBookAddCommand(UUID userId, UUID shelfId, List<BookInput> boo
     books = List.copyOf(books);
   }
 
-  /** readingStatus가 null이면 기존 도서는 상태 유지, 신규 도서는 WANT_TO_READ를 적용한다. */
-  public record BookInput(String isbn, @Nullable ReadingStatus readingStatus) {}
+  /** readingStatus는 필수이며, 신규·기존·재등록 도서 모두 요청한 상태를 적용한다. */
+  public record BookInput(String isbn, ReadingStatus readingStatus) {}
 }

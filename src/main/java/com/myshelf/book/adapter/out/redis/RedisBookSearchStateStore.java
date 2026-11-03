@@ -1,7 +1,7 @@
 package com.myshelf.book.adapter.out.redis;
 
 import com.myshelf.book.application.model.BookSearchState;
-import com.myshelf.book.application.port.out.BookSearchStatePort;
+import com.myshelf.book.application.port.out.search.BookSearchStatePort;
 import com.myshelf.book.error.BookErrorCode;
 import com.myshelf.book.exception.BookException;
 import java.time.Duration;
