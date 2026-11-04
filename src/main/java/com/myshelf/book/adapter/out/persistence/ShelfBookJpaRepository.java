@@ -36,4 +36,17 @@ public interface ShelfBookJpaRepository extends JpaRepository<ShelfBookEntity, U
             AND s.userId = :userId
     """)
   List<IsbnShelfRow> findRegisteredShelves(UUID userId, List<String> isbns);
+
+  @Query(
+      """
+      SELECT CASE WHEN COUNT(sb) > 0 THEN true ELSE false END
+      FROM ShelfBookEntity sb
+      WHERE sb.shelf.id =: shelfId
+      AND sb.userBook.isbn =: isbn
+    """)
+  boolean existsByShelfIdAndIsbn(UUID shelfId, String isbn);
+
+  boolean existsByUserBookId(UUID userBookId);
+
+  boolean existsByShelfIdAndUserBookId(UUID shelfId, UUID userBookId);
 }

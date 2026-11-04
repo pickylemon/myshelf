@@ -6,6 +6,12 @@ import com.myshelf.book.application.port.out.registration.BookRepositoryPort;
 import com.myshelf.book.domain.ReadingStatus;
 import com.myshelf.book.domain.ShelfBook;
 import com.myshelf.book.domain.UserBook;
+import com.myshelf.book.error.BookErrorCode;
+import com.myshelf.book.exception.BookException;
+import com.myshelf.shelf.adapter.out.persistence.ShelfEntity;
+import com.myshelf.shelf.adapter.out.persistence.ShelfJpaRepository;
+import com.myshelf.shelf.error.ShelfErrorCode;
+import com.myshelf.shelf.exception.ShelfException;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
@@ -15,6 +21,8 @@ import org.springframework.stereotype.Repository;
 public class BookRegistrationPersistenceAdapter
     implements BookRegistrationLookupPort, BookRepositoryPort {
   private final ShelfBookJpaRepository shelfBookJpaRepository;
+  private final UserBookJpaRepository userBookJpaRepository;
+  private final ShelfJpaRepository shelfJpaRepository;
 
   @Override
   public Map<String, List<BookShelfInfo>> lookup(UUID userId, List<String> isbnList) {
@@ -33,51 +41,73 @@ public class BookRegistrationPersistenceAdapter
 
   @Override
   public Optional<UserBook> findUserBookByUserIdAndIsbn(UUID userId, String isbn) {
-    return Optional.empty();
-  }
-
-  @Override
-  public boolean exitsShelfBookByShelfIdAndIsbn(UUID shelfId, String isbn) {
-    return false;
+    return userBookJpaRepository.getByUserIdAndIsbn(userId, isbn).map(UserBookEntity::toDomain);
   }
 
   @Override
   public boolean existsShelfBookByShelfIdAndIsbn(UUID shelfId, String isbn) {
-    return false;
+    return shelfBookJpaRepository.existsByShelfIdAndIsbn(shelfId, isbn);
   }
 
   @Override
   public boolean existsShelfBookByUserBookId(UUID userBookId) {
-    return false;
+
+    return shelfBookJpaRepository.existsByUserBookId(userBookId);
   }
 
   @Override
   public boolean existsShelfBookByShelfIdAndUserBookId(UUID shelfId, UUID userBookId) {
-    return false;
-  }
-
-  @Override
-  public Optional<Integer> findMaxPositionByShelfId(UUID shelfId) {
-    return Optional.empty();
+    return shelfBookJpaRepository.existsByShelfIdAndUserBookId(shelfId, userBookId);
   }
 
   @Override
   public UserBook createUserBook(UserBook userBook) {
-    return null;
+    UserBookEntity userBookEntity = UserBookEntity.from(userBook);
+    UserBookEntity saved = userBookJpaRepository.save(userBookEntity);
+
+    return UserBookEntity.toDomain(saved);
   }
 
   @Override
   public UserBook updateReadingStatus(UUID userBookId, UUID userId, ReadingStatus readingStatus) {
-    return null;
+    UserBookEntity found =
+        userBookJpaRepository
+            .findByIdAndUserId(userBookId, userId)
+            .orElseThrow(() -> new BookException(BookErrorCode.USER_BOOK_NOT_FOUND));
+
+    found.updateReadingStatus(readingStatus);
+
+    return UserBookEntity.toDomain(found);
   }
 
   @Override
   public UserBook resetForReregistration(UUID userBookId, UUID userId) {
-    return null;
+    UserBookEntity found =
+        userBookJpaRepository
+            .findByIdAndUserId(userBookId, userId)
+            .orElseThrow(() -> new BookException(BookErrorCode.USER_BOOK_NOT_FOUND));
+
+    found.resetMemo();
+
+    return UserBookEntity.toDomain(found);
   }
 
   @Override
   public ShelfBook createShelfBook(ShelfBook shelfBook) {
-    return null;
+    UserBookEntity userBook =
+        userBookJpaRepository
+            .findById(shelfBook.userBookId())
+            .orElseThrow(() -> new BookException(BookErrorCode.USER_BOOK_NOT_FOUND));
+
+    ShelfEntity shelf =
+        shelfJpaRepository
+            .findById(shelfBook.shelfId())
+            .orElseThrow(() -> new ShelfException(ShelfErrorCode.SHELF_NOT_FOUND));
+
+    ShelfBookEntity shelfBookEntity = ShelfBookEntity.from(shelfBook, shelf, userBook);
+
+    ShelfBookEntity saved = shelfBookJpaRepository.save(shelfBookEntity);
+
+    return ShelfBookEntity.toDomain(saved);
   }
 }

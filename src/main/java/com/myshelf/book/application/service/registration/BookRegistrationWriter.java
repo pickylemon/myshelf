@@ -38,7 +38,7 @@ public class BookRegistrationWriter {
       UserBook userBook;
       if (found.isPresent()) { // 도서상태 업데이트
         userBook = found.get();
-        if (bookRepositoryPort.exitsShelfBookByShelfIdAndIsbn(command.shelfId(), inputBook.isbn()))
+        if (bookRepositoryPort.existsShelfBookByShelfIdAndIsbn(command.shelfId(), inputBook.isbn()))
           continue; // 이미 해당 서재에 있는 도서는 필터링
 
         // 도서 상태 업데이트
