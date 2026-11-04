@@ -41,8 +41,8 @@ public interface ShelfBookJpaRepository extends JpaRepository<ShelfBookEntity, U
       """
       SELECT CASE WHEN COUNT(sb) > 0 THEN true ELSE false END
       FROM ShelfBookEntity sb
-      WHERE sb.shelf.id =: shelfId
-      AND sb.userBook.isbn =: isbn
+      WHERE sb.shelf.id = :shelfId
+      AND sb.userBook.isbn = :isbn
     """)
   boolean existsByShelfIdAndIsbn(UUID shelfId, String isbn);
 

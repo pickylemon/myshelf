@@ -8,18 +8,24 @@ import com.myshelf.book.domain.ShelfBook;
 import com.myshelf.book.domain.UserBook;
 import com.myshelf.book.error.BookErrorCode;
 import com.myshelf.book.exception.BookException;
+import com.myshelf.global.persistence.ConstraintViolationMatcher;
 import com.myshelf.shelf.adapter.out.persistence.ShelfEntity;
 import com.myshelf.shelf.adapter.out.persistence.ShelfJpaRepository;
 import com.myshelf.shelf.error.ShelfErrorCode;
 import com.myshelf.shelf.exception.ShelfException;
 import java.util.*;
 import lombok.RequiredArgsConstructor;
+import org.hibernate.exception.ConstraintViolationException.ConstraintKind;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Repository;
 
 @Repository
 @RequiredArgsConstructor
 public class BookRegistrationPersistenceAdapter
     implements BookRegistrationLookupPort, BookRepositoryPort {
+  private static final String USER_BOOK_UNIQUE_CONSTRAINT = "uk_user_books_user_isbn";
+  private static final String SHELF_BOOK_UNIQUE_CONSTRAINT = "uk_shelf_books_shelf_user_book";
+
   private final ShelfBookJpaRepository shelfBookJpaRepository;
   private final UserBookJpaRepository userBookJpaRepository;
   private final ShelfJpaRepository shelfJpaRepository;
@@ -45,27 +51,28 @@ public class BookRegistrationPersistenceAdapter
   }
 
   @Override
-  public boolean existsShelfBookByShelfIdAndIsbn(UUID shelfId, String isbn) {
-    return shelfBookJpaRepository.existsByShelfIdAndIsbn(shelfId, isbn);
-  }
-
-  @Override
   public boolean existsShelfBookByUserBookId(UUID userBookId) {
 
     return shelfBookJpaRepository.existsByUserBookId(userBookId);
   }
 
   @Override
-  public boolean existsShelfBookByShelfIdAndUserBookId(UUID shelfId, UUID userBookId) {
+  public boolean existsByShelfIdAndUserBookId(UUID shelfId, UUID userBookId) {
     return shelfBookJpaRepository.existsByShelfIdAndUserBookId(shelfId, userBookId);
   }
 
   @Override
   public UserBook createUserBook(UserBook userBook) {
-    UserBookEntity userBookEntity = UserBookEntity.from(userBook);
-    UserBookEntity saved = userBookJpaRepository.save(userBookEntity);
-
-    return UserBookEntity.toDomain(saved);
+    try {
+      UserBookEntity userBookEntity = UserBookEntity.from(userBook);
+      UserBookEntity saved = userBookJpaRepository.saveAndFlush(userBookEntity);
+      return UserBookEntity.toDomain(saved);
+    } catch (DataIntegrityViolationException e) {
+      if (isDuplicateRegistration(e)) {
+        throw new BookException(BookErrorCode.DUPLICATE_REGISTRATION, e);
+      }
+      throw e;
+    }
   }
 
   @Override
@@ -106,8 +113,21 @@ public class BookRegistrationPersistenceAdapter
 
     ShelfBookEntity shelfBookEntity = ShelfBookEntity.from(shelfBook, shelf, userBook);
 
-    ShelfBookEntity saved = shelfBookJpaRepository.save(shelfBookEntity);
+    try {
+      ShelfBookEntity saved = shelfBookJpaRepository.saveAndFlush(shelfBookEntity);
+      return ShelfBookEntity.toDomain(saved);
+    } catch (DataIntegrityViolationException e) {
+      if (isDuplicateRegistration(e)) {
+        throw new BookException(BookErrorCode.DUPLICATE_REGISTRATION, e);
+      }
+      throw e;
+    }
+  }
 
-    return ShelfBookEntity.toDomain(saved);
+  private boolean isDuplicateRegistration(Throwable exception) {
+    return ConstraintViolationMatcher.matches(
+            exception, ConstraintKind.UNIQUE, USER_BOOK_UNIQUE_CONSTRAINT)
+        || ConstraintViolationMatcher.matches(
+            exception, ConstraintKind.UNIQUE, SHELF_BOOK_UNIQUE_CONSTRAINT);
   }
 }

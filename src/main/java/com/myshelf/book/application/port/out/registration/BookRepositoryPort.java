@@ -11,13 +11,11 @@ public interface BookRepositoryPort {
   /** 사용자와 ISBN으로 기존 도서를 조회한다. 서재 연결이 없는 도서도 포함한다. */
   Optional<UserBook> findUserBookByUserIdAndIsbn(UUID userId, String isbn);
 
-  boolean existsShelfBookByShelfIdAndIsbn(UUID shelfId, String isbn);
-
   /** 해당 도서가 하나 이상의 서재에 연결되어 있는지 확인한다. */
   boolean existsShelfBookByUserBookId(UUID userBookId);
 
   /** 해당 서재에 도서가 이미 연결되어 있는지 확인한다. */
-  boolean existsShelfBookByShelfIdAndUserBookId(UUID shelfId, UUID userBookId);
+  boolean existsByShelfIdAndUserBookId(UUID shelfId, UUID userBookId);
 
   /** 사용자 도서를 새로 생성한다. */
   UserBook createUserBook(UserBook userBook);

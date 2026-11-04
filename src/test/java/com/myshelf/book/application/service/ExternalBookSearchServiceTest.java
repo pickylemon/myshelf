@@ -4,6 +4,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -43,12 +45,17 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.redis.serializer.SerializationException;
 
 /** 검색 세션 접근과 페이지 진행을 검증한다. 실제 Redis·외부 API·DB는 사용하지 않는다. */
 @ExtendWith(MockitoExtension.class)
 class ExternalBookSearchServiceTest {
+
+  // TODO(테스트 구현예졍): 메타데이터 캐시 save가 BOOK_METADATA_CACHE_UNAVAILABLE을 던져도
+  // 검색 결과·hasNext·세션 저장/삭제가 정상이고, 나머지 캐시 저장은 중단되는지 검증한다.
 
   @Mock ExternalBookSearchPort externalBookSearchPort;
   @Mock BookSearchStatePort bookSearchStatePort;
@@ -343,5 +350,81 @@ class ExternalBookSearchServiceTest {
       verify(bookRegistrationLookupPort).lookup(userId, selectedIsbns);
       verify(bookSearchStatePort, never()).delete(any());
     }
+  }
+
+  @Test
+  void 반환한_도서만_캐싱하고_다음_페이지_버퍼의_도서는_아직_캐싱하지_않는다() {
+    UUID userId = UUID.randomUUID();
+    UUID searchId = UUID.randomUUID();
+    List<BookSearchMeta> pending =
+        IntStream.range(0, 25)
+            .mapToObj(i -> new BookSearchMeta("isbn-" + i, "제목", null, null, null, null))
+            .toList();
+    when(bookSearchStatePort.findById(searchId))
+        .thenReturn(Optional.of(new BookSearchState(userId, "자바", pending, Set.of(), Map.of())));
+    when(bookRegistrationLookupPort.lookup(eq(userId), any())).thenReturn(Map.of());
+
+    ExternalBookSearchResult result = service.loadMore(userId, searchId);
+
+    assertThat(result.books()).hasSize(20);
+    assertThat(result.hasNext()).isTrue();
+    ArgumentCaptor<BookSearchMeta> captor = ArgumentCaptor.forClass(BookSearchMeta.class);
+    verify(bookMetadataCachePort, times(20)).save(captor.capture());
+    assertThat(captor.getAllValues()).containsExactlyElementsOf(pending.subList(0, 20));
+    verifyNoMoreInteractions(bookMetadataCachePort);
+  }
+
+  @Test
+  void 마지막_페이지는_세션을_삭제한_뒤에도_반환_도서를_캐싱한다() {
+    UUID userId = UUID.randomUUID();
+    UUID searchId = UUID.randomUUID();
+    BookSearchMeta book = new BookSearchMeta("isbn", "제목", null, null, null, null);
+    when(bookSearchStatePort.findById(searchId))
+        .thenReturn(
+            Optional.of(
+                new BookSearchState(userId, "자바", List.of(book), Set.of("isbn"), Map.of())));
+    when(bookRegistrationLookupPort.lookup(userId, List.of("isbn"))).thenReturn(Map.of());
+
+    ExternalBookSearchResult result = service.loadMore(userId, searchId);
+
+    assertThat(result.hasNext()).isFalse();
+    InOrder order = inOrder(bookSearchStatePort, bookMetadataCachePort);
+    order.verify(bookSearchStatePort).delete(searchId);
+    order.verify(bookMetadataCachePort).save(book);
+  }
+
+  @Test
+  void 검색_세션_저장이_실패하면_캐시_저장도_진행하지_않는다() {
+    UUID userId = UUID.randomUUID();
+    UUID searchId = UUID.randomUUID();
+    List<BookSearchMeta> pending =
+        IntStream.range(0, 21)
+            .mapToObj(i -> new BookSearchMeta("isbn-" + i, "제목", null, null, null, null))
+            .toList();
+    when(bookSearchStatePort.findById(searchId))
+        .thenReturn(Optional.of(new BookSearchState(userId, "자바", pending, Set.of(), Map.of())));
+    when(bookRegistrationLookupPort.lookup(eq(userId), any())).thenReturn(Map.of());
+    BookException failure = new BookException(BookErrorCode.SEARCH_SESSION_STORE_UNAVAILABLE);
+    doThrow(failure).when(bookSearchStatePort).save(eq(searchId), any());
+
+    assertThatThrownBy(() -> service.loadMore(userId, searchId)).isSameAs(failure);
+
+    verifyNoInteractions(bookMetadataCachePort);
+  }
+
+  @Test
+  void 캐시의_직렬화_오류는_무시하지_않는다() {
+    UUID userId = UUID.randomUUID();
+    UUID searchId = UUID.randomUUID();
+    BookSearchMeta book = new BookSearchMeta("isbn", "제목", null, null, null, null);
+    when(bookSearchStatePort.findById(searchId))
+        .thenReturn(
+            Optional.of(
+                new BookSearchState(userId, "자바", List.of(book), Set.of("isbn"), Map.of())));
+    when(bookRegistrationLookupPort.lookup(userId, List.of("isbn"))).thenReturn(Map.of());
+    SerializationException failure = new SerializationException("test invalid data");
+    doThrow(failure).when(bookMetadataCachePort).save(book);
+
+    assertThatThrownBy(() -> service.loadMore(userId, searchId)).isSameAs(failure);
   }
 }

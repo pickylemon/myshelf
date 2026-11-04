@@ -8,10 +8,7 @@ import com.myshelf.book.domain.ShelfBook;
 import com.myshelf.book.domain.UserBook;
 import com.myshelf.global.util.UuidGenerator;
 import com.myshelf.shelf.application.port.in.ShelfGetUseCase;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
-import java.util.Optional;
+import java.util.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -38,7 +35,7 @@ public class BookRegistrationWriter {
       UserBook userBook;
       if (found.isPresent()) { // 도서상태 업데이트
         userBook = found.get();
-        if (bookRepositoryPort.existsShelfBookByShelfIdAndIsbn(command.shelfId(), inputBook.isbn()))
+        if (bookRepositoryPort.existsByShelfIdAndUserBookId(command.shelfId(), userBook.id()))
           continue; // 이미 해당 서재에 있는 도서는 필터링
 
         // 도서 상태 업데이트

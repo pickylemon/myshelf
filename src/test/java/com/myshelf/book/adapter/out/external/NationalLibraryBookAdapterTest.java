@@ -38,6 +38,9 @@ import org.springframework.web.client.RestClientResponseException;
 /** 실제 HTTP 통신 없이 외부 응답과 통신 오류의 변환을 검증한다. */
 class NationalLibraryBookAdapterTest {
 
+  // TODO(테스트 구현예졍): findByIsbn의 정상 조회. 부분 일치 항목보다 뒤에 정확히 일치하는 항목을 두고,
+  // 요청의 isbn·page_no=1과 반환된 도서의 모든 메타데이터를 검증한다.
+
   private MockRestServiceServer server;
   private NationalLibraryBookAdapter adapter;
 
@@ -296,5 +299,33 @@ class NationalLibraryBookAdapterTest {
         .extracting(book -> book.isbn())
         .containsExactlyInAnyOrder("9781234567890", "9781234567891");
     assertThat(result.nextPageByField()).containsExactlyEntriesOf(Map.of(BookSearchField.TITLE, 2));
+  }
+
+  @ParameterizedTest
+  @ValueSource(
+      strings = {"[]", "[null]", "[{\"EA_ISBN\":\"requested-extra\",\"TITLE\":\"부분 일치\"}]"})
+  void ISBN이_정확히_일치하지_않으면_한_페이지_조회_후_빈_결과를_반환한다(String docs) {
+    server
+        .expect(queryParam("isbn", "requested"))
+        .andExpect(queryParam("page_no", "1"))
+        .andRespond(
+            withSuccess(
+                "{\"TOTAL_COUNT\":101,\"docs\":%s}".formatted(docs), MediaType.APPLICATION_JSON));
+
+    assertThat(adapter.findByIsbn("requested")).isEmpty();
+  }
+
+  @ParameterizedTest
+  @ValueSource(ints = {401, 500})
+  void ISBN_단건_외부_조회도_HTTP_실패를_BookException으로_변환한다(int status) {
+    server
+        .expect(queryParam("isbn", "requested"))
+        .andRespond(withStatus(HttpStatus.valueOf(status)));
+
+    assertThatThrownBy(() -> adapter.findByIsbn("requested"))
+        .isInstanceOfSatisfying(
+            BookException.class,
+            ex ->
+                assertThat(ex.getErrorCode()).isEqualTo(BookErrorCode.EXTERNAL_BOOK_SEARCH_FAILED));
   }
 }
