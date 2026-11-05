@@ -2,13 +2,19 @@ package com.myshelf.book.application.service;
 
 import com.myshelf.book.application.dto.AddedBook;
 import com.myshelf.book.application.dto.BookSearchMeta;
+import com.myshelf.book.application.port.in.reading.UserBookUpdateReadingStatusCommand;
+import com.myshelf.book.application.port.in.reading.UserBookUpdateReadingStatusUseCase;
 import com.myshelf.book.application.port.in.registration.ShelfBookAddCommand;
 import com.myshelf.book.application.port.in.registration.ShelfBookAddUseCase;
+import com.myshelf.book.application.port.in.shelf.ShelfBookDeleteCommand;
 import com.myshelf.book.application.port.in.shelf.ShelfBookRemoveUseCase;
+import com.myshelf.book.application.port.in.shelf.ShelfBookUpdateCommand;
+import com.myshelf.book.application.port.in.shelf.ShelfBookUpdateUseCase;
 import com.myshelf.book.application.port.out.metadata.BookMetadataCachePort;
 import com.myshelf.book.application.port.out.registration.BookRepositoryPort;
 import com.myshelf.book.application.port.out.search.ExternalBookSearchPort;
 import com.myshelf.book.application.service.registration.BookRegistrationWriter;
+import com.myshelf.book.domain.ShelfBook;
 import com.myshelf.book.domain.UserBook;
 import com.myshelf.book.error.BookErrorCode;
 import com.myshelf.book.exception.BookException;
@@ -21,11 +27,16 @@ import java.util.Optional;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Slf4j
 @Service
 @RequiredArgsConstructor
-public class BookService implements ShelfBookAddUseCase, ShelfBookRemoveUseCase {
+public class BookService
+    implements ShelfBookAddUseCase,
+        ShelfBookUpdateUseCase,
+        ShelfBookRemoveUseCase,
+        UserBookUpdateReadingStatusUseCase {
   private final ExternalBookSearchPort externalBookSearchPort;
   private final BookMetadataCachePort bookMetadataCachePort;
   private final ShelfGetUseCase shelfGetUseCase;
@@ -60,6 +71,32 @@ public class BookService implements ShelfBookAddUseCase, ShelfBookRemoveUseCase 
 
     // 3. 도서 신규 등록/독서상태 업데이트 및 서재 등록
     return bookRegistrationWriter.register(command, requestedBookMetaMap);
+  }
+
+  @Override
+  @Transactional
+  public void updateMemo(ShelfBookUpdateCommand command) {
+    // ShelfBook을 찾는다.
+    ShelfBook shelfBook =
+        bookRepositoryPort.findShelfBookByIdAndUserId(command.shelfBookId(), command.userId());
+    bookRepositoryPort.updateShelfBookMemo(shelfBook.id(), command.memo());
+  }
+
+  @Override
+  @Transactional
+  public void delete(ShelfBookDeleteCommand command) {
+    ShelfBook shelfBook =
+        bookRepositoryPort.findShelfBookByIdAndUserId(command.shelfBookId(), command.userId());
+    bookRepositoryPort.deleteShelfBook(shelfBook.id());
+  }
+
+  @Override
+  @Transactional
+  public void update(UserBookUpdateReadingStatusCommand command) {
+    UserBook userBook =
+        bookRepositoryPort.findByUserBookIdAndUserId(command.userBookId(), command.userId());
+    bookRepositoryPort.updateReadingStatus(
+        userBook.id(), userBook.userId(), command.readingStatus());
   }
 
   private BookSearchMeta resolveNewBookMetadata(String isbn) {

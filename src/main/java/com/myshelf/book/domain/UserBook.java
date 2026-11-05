@@ -12,7 +12,6 @@ public record UserBook(
     String publisher,
     String coverImageUrl,
     ReadingStatus readingStatus,
-    String memo,
     Instant createdAt,
     Instant updatedAt) {
   public UserBook(
@@ -34,7 +33,6 @@ public record UserBook(
         publisher,
         coverImageUrl,
         readingStatus,
-        null, // memo
         null, // createdAt
         null // updatedAt
         );

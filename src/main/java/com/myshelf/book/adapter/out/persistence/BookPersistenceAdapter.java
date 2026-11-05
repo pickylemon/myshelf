@@ -21,8 +21,7 @@ import org.springframework.stereotype.Repository;
 
 @Repository
 @RequiredArgsConstructor
-public class BookRegistrationPersistenceAdapter
-    implements BookRegistrationLookupPort, BookRepositoryPort {
+public class BookPersistenceAdapter implements BookRegistrationLookupPort, BookRepositoryPort {
   private static final String USER_BOOK_UNIQUE_CONSTRAINT = "uk_user_books_user_isbn";
   private static final String SHELF_BOOK_UNIQUE_CONSTRAINT = "uk_shelf_books_shelf_user_book";
 
@@ -88,18 +87,6 @@ public class BookRegistrationPersistenceAdapter
   }
 
   @Override
-  public UserBook resetForReregistration(UUID userBookId, UUID userId) {
-    UserBookEntity found =
-        userBookJpaRepository
-            .findByIdAndUserId(userBookId, userId)
-            .orElseThrow(() -> new BookException(BookErrorCode.USER_BOOK_NOT_FOUND));
-
-    found.resetMemo();
-
-    return UserBookEntity.toDomain(found);
-  }
-
-  @Override
   public ShelfBook createShelfBook(ShelfBook shelfBook) {
     UserBookEntity userBook =
         userBookJpaRepository
@@ -122,6 +109,46 @@ public class BookRegistrationPersistenceAdapter
       }
       throw e;
     }
+  }
+
+  @Override
+  public void updateShelfBookMemo(UUID shelfBookId, String memo) {
+    ShelfBookEntity found =
+        shelfBookJpaRepository
+            .findById(shelfBookId)
+            .orElseThrow(() -> new BookException(BookErrorCode.SHELF_BOOK_NOT_FOUND));
+
+    found.updateMemo(memo);
+  }
+
+  @Override
+  public ShelfBook findShelfBookByIdAndUserId(UUID shelfBookId, UUID userId) {
+    ShelfBookEntity found =
+        shelfBookJpaRepository
+            .findByIdAndUserId(shelfBookId, userId)
+            .orElseThrow(() -> new BookException(BookErrorCode.SHELF_BOOK_NOT_FOUND));
+
+    return ShelfBookEntity.toDomain(found);
+  }
+
+  @Override
+  public void deleteShelfBook(UUID shelfBookId) {
+    ShelfBookEntity entity =
+        shelfBookJpaRepository
+            .findById(shelfBookId)
+            .orElseThrow(() -> new BookException(BookErrorCode.SHELF_BOOK_NOT_FOUND));
+
+    shelfBookJpaRepository.delete(entity);
+  }
+
+  @Override
+  public UserBook findByUserBookIdAndUserId(UUID userBookId, UUID userId) {
+    UserBookEntity userBookEntity =
+        userBookJpaRepository
+            .findByIdAndUserId(userBookId, userId)
+            .orElseThrow(() -> new BookException(BookErrorCode.USER_BOOK_NOT_FOUND));
+
+    return UserBookEntity.toDomain(userBookEntity);
   }
 
   private boolean isDuplicateRegistration(Throwable exception) {

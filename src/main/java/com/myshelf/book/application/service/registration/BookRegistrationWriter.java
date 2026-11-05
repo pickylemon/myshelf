@@ -42,11 +42,6 @@ public class BookRegistrationWriter {
         bookRepositoryPort.updateReadingStatus(
             userBook.id(), command.userId(), inputBook.readingStatus());
 
-        // 서재에 없는 도서면 메모 초기화
-        if (!bookRepositoryPort.existsShelfBookByUserBookId(userBook.id())) {
-          bookRepositoryPort.resetForReregistration(userBook.id(), command.userId());
-        }
-
       } else { // 사용자 신규 도서의 경우
         BookSearchMeta bookMeta = metadataByIsbn.get(inputBook.isbn());
         if (bookMeta == null) {

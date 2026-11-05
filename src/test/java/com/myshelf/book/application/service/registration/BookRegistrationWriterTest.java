@@ -44,9 +44,6 @@ class BookRegistrationWriterTest {
     writer = new BookRegistrationWriter(repository, shelfGetUseCase);
   }
 
-  // TODO(테스트 구현예졍): 기존 UserBook이 어느 서재에도 연결되지 않았을 때 재등록한다.
-  // 요청 상태 변경·resetForReregistration 호출·기존 ID로 새 연결 생성·결과를 검증한다.
-
   @Test
   void 신규_도서의_메타데이터와_요청_상태로_UserBook과_연결을_생성한다() {
     BookSearchMeta metadata = new BookSearchMeta("isbn", "제목", "저자", "출판사", null, "cover");
@@ -73,33 +70,31 @@ class BookRegistrationWriterTest {
     assertThat(created.publisher()).isEqualTo("출판사");
     assertThat(created.coverImageUrl()).isEqualTo("cover");
     assertThat(created.readingStatus()).isEqualTo(ReadingStatus.READ);
-    assertThat(created.memo()).isNull();
     ArgumentCaptor<ShelfBook> linkCaptor = ArgumentCaptor.forClass(ShelfBook.class);
     verify(repository).createShelfBook(linkCaptor.capture());
     assertThat(linkCaptor.getValue().shelfId()).isEqualTo(shelfId);
     assertThat(linkCaptor.getValue().userBookId()).isEqualTo(created.id());
+    assertThat(linkCaptor.getValue().memo()).isNull();
     assertThat(result).containsExactly(new AddedBook("isbn", returnedId));
     verify(shelfGetUseCase).get(shelfId, userId);
     verify(repository, never()).updateReadingStatus(any(), any(), any());
-    verify(repository, never()).resetForReregistration(any(), any());
   }
 
   @Test
-  void 다른_서재에_연결된_기존_도서는_상태만_변경하고_메모_초기화를_요청하지_않는다() {
+  void 기존_도서는_선택한_상태로_변경하고_메모가_없는_새_연결을_생성한다() {
     UserBook existing = existing();
     when(repository.findUserBookByUserIdAndIsbn(userId, "isbn")).thenReturn(Optional.of(existing));
     when(repository.existsByShelfIdAndUserBookId(shelfId, existing.id())).thenReturn(false);
-    when(repository.existsShelfBookByUserBookId(existing.id())).thenReturn(true);
     when(repository.createShelfBook(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
     List<AddedBook> result = writer.register(command(), Map.of());
 
     verify(repository).updateReadingStatus(existing.id(), userId, ReadingStatus.READ);
-    verify(repository, never()).resetForReregistration(any(), any());
     verify(repository, never()).createUserBook(any());
     ArgumentCaptor<ShelfBook> captor = ArgumentCaptor.forClass(ShelfBook.class);
     verify(repository).createShelfBook(captor.capture());
     assertThat(captor.getValue().userBookId()).isEqualTo(existing.id());
+    assertThat(captor.getValue().memo()).isNull();
     assertThat(result).containsExactly(new AddedBook("isbn", captor.getValue().id()));
   }
 
@@ -112,7 +107,6 @@ class BookRegistrationWriterTest {
     assertThat(writer.register(command(), Map.of())).isEmpty();
 
     verify(repository, never()).updateReadingStatus(any(), any(), any());
-    verify(repository, never()).resetForReregistration(any(), any());
     verify(repository, never()).createUserBook(any());
     verify(repository, never()).createShelfBook(any());
   }
@@ -153,7 +147,6 @@ class BookRegistrationWriterTest {
         "출판사",
         "cover",
         ReadingStatus.READING,
-        "보존할 메모",
         Instant.parse("2026-10-01T00:00:00Z"),
         Instant.parse("2026-10-02T00:00:00Z"));
   }

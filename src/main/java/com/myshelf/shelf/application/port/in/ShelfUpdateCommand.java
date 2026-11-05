@@ -4,4 +4,4 @@ import jakarta.annotation.Nullable;
 import java.util.UUID;
 
 public record ShelfUpdateCommand(
-    UUID shelfId, UUID userId, String name, @Nullable String description) {}
+    UUID userId, UUID shelfId, String name, @Nullable String description) {}

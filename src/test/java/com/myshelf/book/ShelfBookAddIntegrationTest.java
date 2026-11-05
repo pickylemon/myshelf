@@ -84,7 +84,7 @@ class ShelfBookAddIntegrationTest {
   }
 
   // TODO(테스트 구현예졍): 한 요청에서 앞 도서는 저장 가능하고 뒤 도서는 DB 제약 위반이 나도록 준비한다.
-  // HTTP 성공이 아님을 확인하고, 앞 도서 생성·기존 도서의 상태/메모 변경·ShelfBook 연결까지
+  // HTTP 성공이 아님을 확인하고, 앞 도서 생성·기존 도서의 상태 변경·ShelfBook 연결까지
   // 모두 롤백됐는지 JDBC로 검증한다. 테스트 메서드에 @Transactional을 붙이지 않는다.
   // 재사용 가능한 Redis 메타데이터가 남는 것은 PostgreSQL 롤백 실패가 아니다.
 
@@ -94,8 +94,7 @@ class ShelfBookAddIntegrationTest {
     UUID shelfId = insertShelf(userId, "내 서재");
     BookSearchMeta first = cacheBook();
     BookSearchMeta second = cacheBook();
-    UUID otherBookId =
-        insertUserBook(createUser(), first.isbn(), "타인의 제목", ReadingStatus.READING, "타인 메모");
+    UUID otherBookId = insertUserBook(createUser(), first.isbn(), "타인의 제목", ReadingStatus.READING);
 
     JsonNode response =
         addBooks(
@@ -116,7 +115,7 @@ class ShelfBookAddIntegrationTest {
               """
               select sb.shelf_id, sb.user_book_id, sb.position, sb.created_at as linked_at,
                      ub.user_id, ub.isbn, ub.title, ub.author, ub.publisher, ub.cover_image_url,
-                     ub.reading_status_code, ub.memo, ub.created_at, ub.updated_at
+                     ub.reading_status_code, sb.memo, ub.created_at, ub.updated_at
               from shelf_books sb join user_books ub on ub.id = sb.user_book_id
               where sb.id = ?
               """,
@@ -138,20 +137,22 @@ class ShelfBookAddIntegrationTest {
     }
     assertThat(
             jdbcTemplate.queryForMap(
-                "select title, memo from user_books where id = ?", otherBookId))
+                "select title, reading_status_code from user_books where id = ?", otherBookId))
         .containsEntry("title", "타인의 제목")
-        .containsEntry("memo", "타인 메모");
+        .containsEntry("reading_status_code", "READING");
     verifyNoInteractions(externalBookSearchPort);
   }
 
   @Test
-  void 다른_서재의_도서는_기존_UserBook과_메모를_유지하고_선택한_상태로_연결한다() throws Exception {
+  void 다른_서재의_메모는_유지하고_새_연결은_메모_없이_선택한_상태로_등록한다() throws Exception {
     UUID userId = createUser();
     UUID oldShelfId = insertShelf(userId, "기존 서재");
     UUID newShelfId = insertShelf(userId, "새 서재");
     String isbn = newIsbn();
-    UUID bookId = insertUserBook(userId, isbn, "기존 제목", ReadingStatus.READING, "보존할 메모");
-    UUID oldLinkId = insertShelfBook(oldShelfId, bookId);
+    UUID bookId = insertUserBook(userId, isbn, "기존 제목", ReadingStatus.READING);
+    UUID oldLinkId = insertShelfBook(oldShelfId, bookId, "보존할 메모");
+    Map<String, Object> oldLinkBefore =
+        jdbcTemplate.queryForMap("select * from shelf_books where id = ?", oldLinkId);
 
     JsonNode response =
         addBooks(userId, newShelfId, List.of(new BookInput(isbn, ReadingStatus.READ)));
@@ -159,18 +160,16 @@ class ShelfBookAddIntegrationTest {
     UUID newLinkId = UUID.fromString(response.get("books").get(0).get("shelfBookId").asString());
     assertThat(
             jdbcTemplate.queryForMap(
-                "select shelf_id, user_book_id from shelf_books where id = ?", newLinkId))
+                "select shelf_id, user_book_id, memo from shelf_books where id = ?", newLinkId))
         .containsEntry("shelf_id", newShelfId)
-        .containsEntry("user_book_id", bookId);
-    assertThat(
-            jdbcTemplate.queryForObject(
-                "select count(*) from shelf_books where id = ?", Long.class, oldLinkId))
-        .isEqualTo(1L);
+        .containsEntry("user_book_id", bookId)
+        .containsEntry("memo", null);
+    assertThat(jdbcTemplate.queryForMap("select * from shelf_books where id = ?", oldLinkId))
+        .isEqualTo(oldLinkBefore);
     assertThat(
             jdbcTemplate.queryForMap(
-                "select title, memo, reading_status_code from user_books where id = ?", bookId))
+                "select title, reading_status_code from user_books where id = ?", bookId))
         .containsEntry("title", "기존 제목")
-        .containsEntry("memo", "보존할 메모")
         .containsEntry("reading_status_code", "READ");
     assertThat(
             jdbcTemplate.queryForObject(
@@ -188,8 +187,10 @@ class ShelfBookAddIntegrationTest {
     UUID userId = createUser();
     UUID shelfId = insertShelf(userId, "내 서재");
     String existingIsbn = newIsbn();
-    UUID bookId = insertUserBook(userId, existingIsbn, "기존 제목", ReadingStatus.READING, "기존 메모");
-    UUID linkId = insertShelfBook(shelfId, bookId);
+    UUID bookId = insertUserBook(userId, existingIsbn, "기존 제목", ReadingStatus.READING);
+    UUID linkId = insertShelfBook(shelfId, bookId, "기존 메모");
+    Map<String, Object> linkBefore =
+        jdbcTemplate.queryForMap("select * from shelf_books where id = ?", linkId);
     Map<String, Object> before =
         jdbcTemplate.queryForMap("select * from user_books where id = ?", bookId);
     List<BookInput> inputs = new ArrayList<>();
@@ -204,10 +205,8 @@ class ShelfBookAddIntegrationTest {
           .isEqualTo(inputs.get(1).isbn());
     assertThat(jdbcTemplate.queryForMap("select * from user_books where id = ?", bookId))
         .isEqualTo(before);
-    assertThat(
-            jdbcTemplate.queryForObject(
-                "select count(*) from shelf_books where id = ?", Long.class, linkId))
-        .isEqualTo(1L);
+    assertThat(jdbcTemplate.queryForMap("select * from shelf_books where id = ?", linkId))
+        .isEqualTo(linkBefore);
     verifyNoInteractions(externalBookSearchPort);
   }
 
@@ -282,28 +281,27 @@ class ShelfBookAddIntegrationTest {
     return id;
   }
 
-  private UUID insertUserBook(
-      UUID userId, String isbn, String title, ReadingStatus status, String memo) {
+  private UUID insertUserBook(UUID userId, String isbn, String title, ReadingStatus status) {
     UUID id = UUID.randomUUID();
     jdbcTemplate.update(
-        "insert into user_books (id, user_id, isbn, title, reading_status_code, memo) values (?, ?,"
-            + " ?, ?, ?, ?)",
+        "insert into user_books (id, user_id, isbn, title, reading_status_code) values (?, ?,"
+            + " ?, ?, ?)",
         id,
         userId,
         isbn,
         title,
-        status.name(),
-        memo);
+        status.name());
     return id;
   }
 
-  private UUID insertShelfBook(UUID shelfId, UUID bookId) {
+  private UUID insertShelfBook(UUID shelfId, UUID bookId, String memo) {
     UUID id = UUID.randomUUID();
     jdbcTemplate.update(
-        "insert into shelf_books (id, shelf_id, user_book_id, position) values (?, ?, ?, null)",
+        "insert into shelf_books (id, shelf_id, user_book_id, position, memo) values (?, ?, ?, null, ?)",
         id,
         shelfId,
-        bookId);
+        bookId,
+        memo);
     return id;
   }
 

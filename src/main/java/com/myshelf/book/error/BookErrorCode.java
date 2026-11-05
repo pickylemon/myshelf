@@ -16,7 +16,8 @@ public enum BookErrorCode {
   BOOK_METADATA_CACHE_UNAVAILABLE("BOOK_METADATA_CACHE_UNAVAILABLE", "도서정보 캐시에 일시적으로 접근할 수 없습니다."),
   BOOK_METADATA_NOT_FOUND("BOOK_METADATA_NOT_FOUND", "해당 ISBN의 도서정보를 찾을 수 없습니다."),
   USER_BOOK_NOT_FOUND("USER_BOOK_NOT_FOUND", "등록된 도서를 찾을 수 없습니다."),
-  DUPLICATE_REGISTRATION("DUPLICATE_REGISTRATION", "다른 등록 요청과 충돌했습니다. 잠시 후 다시 시도해 주세요.");
+  DUPLICATE_REGISTRATION("DUPLICATE_REGISTRATION", "다른 등록 요청과 충돌했습니다. 잠시 후 다시 시도해 주세요."),
+  SHELF_BOOK_NOT_FOUND("SHELF_BOOK_NOT_FOUND", "서재에 등록된 도서를 찾을 수 없습니다.");
 
   private final String code;
   private final String message;

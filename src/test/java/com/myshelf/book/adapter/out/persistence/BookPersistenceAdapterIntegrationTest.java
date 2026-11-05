@@ -20,6 +20,9 @@ import java.util.UUID;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -31,17 +34,14 @@ import org.springframework.transaction.support.TransactionTemplate;
 /** 실제 PostgreSQL의 조인 조건·사용자 격리·ISBN별 서재 매핑을 검증한다. */
 @SpringBootTest
 @ActiveProfiles("test")
-class BookRegistrationPersistenceAdapterIntegrationTest {
+class BookPersistenceAdapterIntegrationTest {
 
-  @Autowired BookRegistrationPersistenceAdapter adapter;
+  @Autowired BookPersistenceAdapter adapter;
   @Autowired UserPersistenceAdapter userPersistenceAdapter;
   @Autowired JdbcTemplate jdbcTemplate;
   @Autowired PlatformTransactionManager transactionManager;
 
   private final List<UUID> userIds = new ArrayList<>();
-
-  // TODO(테스트 구현예졍): resetForReregistration을 쓰기 트랜잭션 안에서 호출한다.
-  // 메모만 null이 되고 독서 상태·메타데이터·생성일은 유지되는지 반환값과 DB 모두 확인한다.
 
   @BeforeEach
   void 테스트_DB를_사용하는지_확인한다() {
@@ -198,7 +198,6 @@ class BookRegistrationPersistenceAdapterIntegrationTest {
             "출판사",
             "cover",
             ReadingStatus.READING,
-            "메모",
             null,
             null);
 
@@ -217,19 +216,27 @@ class BookRegistrationPersistenceAdapterIntegrationTest {
     Map<String, Object> row =
         jdbcTemplate.queryForMap("select * from user_books where id = ?", saved.id());
     assertThat(row.get("reading_status_code")).isEqualTo("READING");
-    assertThat(row.get("memo")).isEqualTo("메모");
     assertThat(((Timestamp) row.get("created_at")).toInstant()).isEqualTo(saved.createdAt());
     assertThat(((Timestamp) row.get("updated_at")).toInstant()).isEqualTo(saved.updatedAt());
   }
 
   @Test
-  void 독서_상태_변경은_메모와_기존_메타데이터를_유지한다() {
+  void 독서_상태_변경은_서재별_메모와_기존_메타데이터를_유지한다() {
     UUID owner = createUser();
     UUID bookId = insertUserBook(owner, "9781234567890");
+    UUID shelfId = insertShelf(owner, "내 서재");
+    insertShelfBook(shelfId, bookId);
+    jdbcTemplate.update(
+        "update shelf_books set memo = ? where shelf_id = ? and user_book_id = ?",
+        "보존할 메모",
+        shelfId,
+        bookId);
+    Map<String, Object> linkBefore =
+        jdbcTemplate.queryForMap(
+            "select * from shelf_books where shelf_id = ? and user_book_id = ?", shelfId, bookId);
     Instant createdAt = Instant.parse("2026-10-01T00:00:00Z");
     jdbcTemplate.update(
-        "update user_books set memo = ?, created_at = ?, updated_at = ? where id = ?",
-        "보존할 메모",
+        "update user_books set created_at = ?, updated_at = ? where id = ?",
         Timestamp.from(createdAt),
         Timestamp.from(createdAt),
         bookId);
@@ -242,7 +249,12 @@ class BookRegistrationPersistenceAdapterIntegrationTest {
 
     assertThat(result).isNotNull();
     assertThat(result.readingStatus()).isEqualTo(ReadingStatus.READ);
-    assertThat(result.memo()).isEqualTo("보존할 메모");
+    assertThat(
+            jdbcTemplate.queryForMap(
+                "select * from shelf_books where shelf_id = ? and user_book_id = ?",
+                shelfId,
+                bookId))
+        .isEqualTo(linkBefore);
     Map<String, Object> after =
         jdbcTemplate.queryForMap("select * from user_books where id = ?", bookId);
     assertThat(after.get("reading_status_code")).isEqualTo("READ");
@@ -276,12 +288,14 @@ class BookRegistrationPersistenceAdapterIntegrationTest {
         .isEqualTo(before);
   }
 
-  @Test
-  void ShelfBook_연결의_ID와_생성일과_nullable_위치를_저장한다() {
+  @ParameterizedTest
+  @NullSource
+  @ValueSource(strings = "이 서재에서 다시 읽을 책")
+  void ShelfBook_연결의_ID와_메모와_생성일과_nullable_위치를_저장한다(String memo) {
     UUID owner = createUser();
     UUID shelfId = insertShelf(owner, "내 서재");
     UUID bookId = insertUserBook(owner, "9781234567890");
-    ShelfBook input = new ShelfBook(UUID.randomUUID(), shelfId, bookId);
+    ShelfBook input = new ShelfBook(UUID.randomUUID(), shelfId, bookId, null, memo, null);
     assertThat(adapter.existsByShelfIdAndUserBookId(shelfId, bookId)).isFalse();
     assertThat(adapter.existsShelfBookByUserBookId(bookId)).isFalse();
 
@@ -291,12 +305,14 @@ class BookRegistrationPersistenceAdapterIntegrationTest {
     assertThat(saved.shelfId()).isEqualTo(shelfId);
     assertThat(saved.userBookId()).isEqualTo(bookId);
     assertThat(saved.position()).isNull();
+    assertThat(saved.memo()).isEqualTo(memo);
     assertThat(saved.createdAt()).isNotNull();
     Map<String, Object> row =
         jdbcTemplate.queryForMap("select * from shelf_books where id = ?", saved.id());
     assertThat(row.get("shelf_id")).isEqualTo(shelfId);
     assertThat(row.get("user_book_id")).isEqualTo(bookId);
     assertThat(row.get("position")).isNull();
+    assertThat(row.get("memo")).isEqualTo(memo);
     assertThat(((Timestamp) row.get("created_at")).toInstant()).isEqualTo(saved.createdAt());
     assertThat(adapter.existsByShelfIdAndUserBookId(shelfId, bookId)).isTrue();
     assertThat(adapter.existsShelfBookByUserBookId(bookId)).isTrue();

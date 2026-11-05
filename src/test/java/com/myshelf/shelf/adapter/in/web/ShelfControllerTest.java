@@ -313,7 +313,7 @@ class ShelfControllerTest {
     UUID shelfId = UUID.randomUUID();
     Instant createdAt = Instant.parse("2026-10-01T01:02:03Z");
     Instant updatedAt = Instant.parse("2026-10-02T04:05:06Z");
-    ShelfUpdateCommand command = new ShelfUpdateCommand(shelfId, USER_ID, "새 이름", "새 설명");
+    ShelfUpdateCommand command = new ShelfUpdateCommand(USER_ID, shelfId, "새 이름", "새 설명");
     when(shelfUpdateUseCase.update(command))
         .thenReturn(new Shelf(shelfId, "새 이름", "새 설명", USER_ID, createdAt, updatedAt));
 

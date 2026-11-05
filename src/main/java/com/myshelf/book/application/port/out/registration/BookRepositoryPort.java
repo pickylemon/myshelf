@@ -23,9 +23,14 @@ public interface BookRepositoryPort {
   /** 사용자 소유 도서의 독서 상태만 변경하고 메모와 메타데이터는 유지한다. */
   UserBook updateReadingStatus(UUID userBookId, UUID userId, ReadingStatus readingStatus);
 
-  /** 사용자 소유 도서의 재등록 시 메모만 초기화한다. 독서 상태와 메타데이터는 유지한다. */
-  UserBook resetForReregistration(UUID userBookId, UUID userId);
-
   /** 서재와 사용자 도서의 연결을 새로 생성한다. */
   ShelfBook createShelfBook(ShelfBook shelfBook);
+
+  void updateShelfBookMemo(UUID shelfBookId, String memo);
+
+  ShelfBook findShelfBookByIdAndUserId(UUID shelfBookId, UUID userId);
+
+  void deleteShelfBook(UUID shelfBookId);
+
+  UserBook findByUserBookIdAndUserId(UUID uuid, UUID uuid1);
 }

@@ -1,6 +1,7 @@
 package com.myshelf.book.adapter.out.persistence;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
@@ -37,16 +38,16 @@ public interface ShelfBookJpaRepository extends JpaRepository<ShelfBookEntity, U
     """)
   List<IsbnShelfRow> findRegisteredShelves(UUID userId, List<String> isbns);
 
-  @Query(
-      """
-      SELECT CASE WHEN COUNT(sb) > 0 THEN true ELSE false END
-      FROM ShelfBookEntity sb
-      WHERE sb.shelf.id = :shelfId
-      AND sb.userBook.isbn = :isbn
-    """)
-  boolean existsByShelfIdAndIsbn(UUID shelfId, String isbn);
-
   boolean existsByUserBookId(UUID userBookId);
 
   boolean existsByShelfIdAndUserBookId(UUID shelfId, UUID userBookId);
+
+  @Query(
+      """
+        SELECT sb
+        FROM ShelfBookEntity sb
+        WHERE sb.id = :shelfBookId
+        AND sb.shelf.userId = :userId
+    """)
+  Optional<ShelfBookEntity> findByIdAndUserId(UUID shelfBookId, UUID userId);
 }

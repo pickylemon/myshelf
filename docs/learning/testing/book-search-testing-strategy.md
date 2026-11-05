@@ -13,7 +13,7 @@
 | `NationalLibraryBookAdapterTest` | HTTP 요청 구성·응답 변환·오류 분류 | MockRestServiceServer와 직접 실행 Executor |
 | `RedisBookSearchStateStoreTest` | 연결 장애와 예외 변환 범위 | RedisTemplate |
 | `RedisBookSearchStateStoreIntegrationTest` | 실제 Redis 직렬화·저장·삭제·만료 | PostgreSQL·외부 API는 로딩하지 않음 |
-| `BookRegistrationPersistenceAdapterIntegrationTest` | 실제 PostgreSQL JOIN·사용자 격리 | 없음 |
+| `BookPersistenceAdapterIntegrationTest` | 실제 PostgreSQL JOIN·사용자 격리 | 없음 |
 | `BookSearchIntegrationTest` | JWT → 검색 진행 → Redis·PostgreSQL → HTTP 응답 | 외부 검색 Port만 Mock |
 
 ## 2. 외부 HTTP는 서버를 호출하지 않고 검증

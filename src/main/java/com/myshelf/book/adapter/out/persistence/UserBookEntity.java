@@ -48,9 +48,6 @@ public class UserBookEntity {
   @Column(name = "reading_status_code", nullable = false)
   private ReadingStatus readingStatus;
 
-  @Column(name = "memo")
-  private String memo;
-
   @CreationTimestamp
   @Column(name = "created_at", nullable = false, updatable = false)
   private Instant createdAt;
@@ -69,7 +66,6 @@ public class UserBookEntity {
         userBook.publisher(),
         userBook.coverImageUrl(),
         userBook.readingStatus(),
-        userBook.memo(),
         userBook.createdAt(),
         userBook.updatedAt());
   }
@@ -84,16 +80,11 @@ public class UserBookEntity {
         entity.getPublisher(),
         entity.getCoverImageUrl(),
         entity.getReadingStatus(),
-        entity.getMemo(),
         entity.getCreatedAt(),
         entity.getUpdatedAt());
   }
 
   public void updateReadingStatus(ReadingStatus readingStatus) {
     this.readingStatus = readingStatus;
-  }
-
-  public void resetMemo() {
-    this.memo = null;
   }
 }

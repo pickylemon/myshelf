@@ -36,6 +36,9 @@ public class ShelfBookEntity {
   @Column(name = "position")
   private Integer position;
 
+  @Column(name = "memo", columnDefinition = "TEXT")
+  private String memo;
+
   @CreationTimestamp
   @Column(name = "created_at", nullable = false, updatable = false)
   private Instant createdAt;
@@ -43,7 +46,12 @@ public class ShelfBookEntity {
   public static ShelfBookEntity from(
       ShelfBook shelfBook, ShelfEntity shelf, UserBookEntity userBook) {
     return new ShelfBookEntity(
-        shelfBook.id(), userBook, shelf, shelfBook.position(), shelfBook.createdAt());
+        shelfBook.id(),
+        userBook,
+        shelf,
+        shelfBook.position(),
+        shelfBook.memo(),
+        shelfBook.createdAt());
   }
 
   public static ShelfBook toDomain(ShelfBookEntity entity) {
@@ -52,6 +60,11 @@ public class ShelfBookEntity {
         entity.getShelf().getId(),
         entity.getUserBook().getId(),
         entity.getPosition(),
+        entity.getMemo(),
         entity.getCreatedAt());
+  }
+
+  public void updateMemo(String memo) {
+    this.memo = memo;
   }
 }
