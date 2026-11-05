@@ -86,17 +86,15 @@ public class BookService
   @Transactional
   public void delete(ShelfBookDeleteCommand command) {
     ShelfBook shelfBook =
-        bookRepositoryPort.findShelfBookByIdAndUserId(command.shelfBookId(), command.userId());
+        bookRepositoryPort.findShelfBookByIdAndUserId(command.shelfBookIds(), command.userId());
     bookRepositoryPort.deleteShelfBook(shelfBook.id());
   }
 
   @Override
   @Transactional
   public void update(UserBookUpdateReadingStatusCommand command) {
-    UserBook userBook =
-        bookRepositoryPort.findByUserBookIdAndUserId(command.userBookId(), command.userId());
     bookRepositoryPort.updateReadingStatus(
-        userBook.id(), userBook.userId(), command.readingStatus());
+        command.userBookId(), command.userId(), command.readingStatus());
   }
 
   private BookSearchMeta resolveNewBookMetadata(String isbn) {

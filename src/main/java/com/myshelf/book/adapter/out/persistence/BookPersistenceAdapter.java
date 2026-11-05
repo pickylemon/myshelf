@@ -123,12 +123,7 @@ public class BookPersistenceAdapter implements BookRegistrationLookupPort, BookR
 
   @Override
   public ShelfBook findShelfBookByIdAndUserId(UUID shelfBookId, UUID userId) {
-    ShelfBookEntity found =
-        shelfBookJpaRepository
-            .findByIdAndUserId(shelfBookId, userId)
-            .orElseThrow(() -> new BookException(BookErrorCode.SHELF_BOOK_NOT_FOUND));
-
-    return ShelfBookEntity.toDomain(found);
+    return null; // TODO 수정 예정
   }
 
   @Override

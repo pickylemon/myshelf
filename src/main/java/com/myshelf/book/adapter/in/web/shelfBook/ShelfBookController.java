@@ -38,11 +38,11 @@ public class ShelfBookController {
     return ResponseEntity.noContent().build();
   }
 
-  @DeleteMapping("/shelf-books/{shelfBookId}")
+  @DeleteMapping("/shelf-books")
   public ResponseEntity<Void> removeShelfBook(
-      @AuthenticationPrincipal Jwt jwt, @PathVariable @NotNull UUID shelfBookId) {
+      @AuthenticationPrincipal Jwt jwt, @RequestBody @Valid ShelfBookDeleteRequest deleteRequest) {
     UUID userId = JwtUserIdResolver.resolveUserId(jwt);
-    shelfBookRemoveUseCase.delete(new ShelfBookDeleteCommand(userId, shelfBookId));
+    shelfBookRemoveUseCase.delete(new ShelfBookDeleteCommand(userId, deleteRequest.shelfBookIds()));
 
     return ResponseEntity.noContent().build();
   }
