@@ -25,7 +25,7 @@ MyShelf 데이터베이스 설계 과정에서 결정한 주요 사항과 선택
 - 같은 작품이라도 ISBN이 다른 판본은 별개 도서로 허용한다.
 - 초기에는 외부 API에서 조회된 ISBN이 있는 책만 등록한다.
 
-ISBN은 저장 전에 일관된 형식으로 정규화한다.
+현재는 외부 검색에서 제공한 ISBN을 그대로 사용하며 정규화하지 않는다. 입력 검증과 재조회 정책은 [Feature 5의 ISBN 정책](../planning/feature-5-book-management.md#32-userbook과-isbn)을 따른다.
 
 ## 3. UserBook과 ShelfBook의 생명주기를 분리한다
 
@@ -38,7 +38,7 @@ ISBN은 저장 전에 일관된 형식으로 정규화한다.
 
 별도의 Soft Delete는 도입하지 않는다.
 
-현재 보관 도서 조회는 ShelfBook 연결이 존재하는 UserBook을 기준으로 한다.
+현재 관리 대상의 기준은 ShelfBook 연결 여부다. 전체 도서 목록 API는 Feature 6에서 이 조건을 적용할 예정이며, Shelf별 목록 API는 현재 연결을 조회한다. 독서 상태는 UserBook, 메모·위치는 ShelfBook에 속한다. V6은 Shelf 삭제 시 연결만 CASCADE로 제거하고 V7은 메모 이동·길이 제약·ShelfBook 수정 시각을 정의한다.
 
 ## 4. 독서 상태는 Lookup Table로 관리한다
 
@@ -71,8 +71,9 @@ Flyway가 기준 데이터를 등록하고, Java Enum과의 일치 여부는 애
 
 **결정:** PK와 UNIQUE 인덱스 외에 다음 일반 인덱스를 사용한다.
 
-- `idx_shelves_user_id`: 사용자별 Shelf 조회
 - `idx_shelf_books_user_book_id`: UserBook 기준 소속 Shelf 탐색
+
+Shelf의 `idx_shelves_user_id`는 V2에서 제거했다. `uk_shelves_name_per_user(user_id, name)`의 복합 인덱스로 사용자별 조회를 지원한다.
 
 **근거:**
 - PostgreSQL은 FK 컬럼에 인덱스를 자동 생성하지 않는다.
@@ -100,8 +101,7 @@ Flyway가 기준 데이터를 등록하고, Java Enum과의 일치 여부는 애
 다음 사항은 해당 기능 구현 시 결정한다.
 
 - Shelf 내부 배치 순서(`position`)의 갱신 및 제약조건
-- Shelf 삭제 시 ShelfBook 처리 정책
-- ISBN 정규화의 구체적인 방식
+- ISBN 정규화 도입 필요성 (현재 적용하지 않음)
 - 추가 조회 인덱스의 필요성
 
 ---

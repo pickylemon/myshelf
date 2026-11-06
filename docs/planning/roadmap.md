@@ -9,11 +9,11 @@ MyShelf는 Spring Boot 기반 백엔드 프로젝트로, 핵심 기능 구현을
 | 1. 백엔드 기반 구축 | 헥사고날 아키텍처, 회원가입, 로그인, JWT 발급 | 완료 |
 | 2. 로컬 실행 환경 구축 | PostgreSQL, Docker, Docker Compose, 테스트 DB 분리 및 자동 생성 | 완료 |
 | 3. CI 및 배포 기반 구축 | GitHub Actions 기반 빌드·테스트 자동화, Docker 이미지 빌드·게시, Jenkins 기초 실습 | 진행 중 |
-| 4. 핵심 기능 개발 | 도서 관리, 개인 서재, 독서 상태 및 기록 | 진행 중: Shelf CRUD, 외부 도서 검색 구현·테스트 추가 |
-| 5. 성능 및 비동기 처리 | Redis 활용, 비동기 처리, Kafka 적용 검토 | Redis 검색 세션 적용. 조회 캐시·Kafka는 후속 검토 |
+| 4. 핵심 기능 개발 | 도서 관리, 개인 서재, 독서 상태 및 기록 | 진행 중: Shelf CRUD, 도서 검색·등록·메모·삭제·독서 상태 변경 구현 |
+| 5. 성능 및 비동기 처리 | Redis 활용, 비동기 처리, Kafka 적용 검토 | Redis 검색 세션·ISBN 메타데이터 캐시 적용. 일반 조회 캐시·Kafka는 후속 검토 |
 | 6. 운영 배포 및 CD 구축 | 운영 환경 구성, 배포 자동화, 배포 후 상태 검사 및 안정성 검증 | 예정 |
 
-JWT 발급과 OAuth2 Resource Server 기반 요청 인증을 구현했다. Feature 4에서 Shelf CRUD에 인증·소유권 검증을 연결했고, Feature 5에서는 외부 도서 검색·사용자별 등록 서재 조회·Redis 검색 세션을 구현했다. 도서 등록·연결 변경·독서 상태 관리 기능은 아직 남아 있다.
+JWT 발급과 OAuth2 Resource Server 기반 요청 인증을 구현했다. Feature 4에서 Shelf CRUD에 인증·소유권 검증을 연결했고, Feature 5에서는 도서 검색·등록·서재별 메모·연결 삭제·독서 상태 변경·Shelf별 목록을 구현했다. 남은 테스트·문서 및 최신 전체 빌드·CI 검증은 별도로 진행한다.
 
 ### 기능별 진행 상태
 
@@ -22,12 +22,15 @@ JWT 발급과 OAuth2 Resource Server 기반 요청 인증을 구현했다. Featu
 | Feature | 범위 | 상태 |
 |---|---|---|
 | Feature 4 | Shelf 생성·목록/상세 조회·수정·삭제, 소유권·중복·DB 정합성 | main 병합 (PR #23) |
-| Feature 5 | 도서 검색·등록, UserBook·ShelfBook, 독서 상태, Shelf 내 도서 목록 및 연관 삭제 정책 | 검색·더 보기·Redis 세션 및 계층별 테스트 구현. 나머지 진행 예정 |
-| Feature 6 | 필사 | 예정 |
+| [Feature 5](./feature-5-book-management.md) | 도서 검색·등록, 메모·독서 상태 변경, 연결 삭제, Shelf별 목록 | 기능 구현 완료. 남은 테스트·문서 및 최종 회귀 검증 필요 |
+| [Feature 6](./feature-6-book-browsing-and-ordering.md) | 전체 도서·상세 조회, Shelf 내 순서 변경, 검색 응답 보완 | 후속 기능 |
+| [Feature 7](./feature-7-transcription.md) | 문장 수집·필사 및 Paper | 후속 기능, 세부 범위 확정 전 |
 
 Feature 4는 Service 단위·웹 계층·PostgreSQL Adapter·실제 JWT API 통합 테스트를 갖췄다. 2026-10-28 확인한 로컬 테스트 결과 파일은 프로젝트 전체 123개 통과(실패·오류·스킵 0)이며, Shelf 테스트만의 개수가 아니다. 로컬 `clean test` 통과와 `build`·Spotless·CI 통과는 구분한다.
 
-Feature 5에는 실제 JWT·PostgreSQL·Redis를 연결하고 외부 API만 Mock으로 대체한 통합 테스트가 추가됐다. 현재 CI Workflow에는 Redis 서비스가 없으므로 테스트 실행 환경 보완이 필요하다. 최신 빌드·CI 결과와 실제 외부 API 성능은 별도로 확인한다. [검색 설계](../architecture/book-search.md), [테스트 전략](../learning/testing/book-search-testing-strategy.md)을 참고한다.
+Feature 5에는 실제 JWT·PostgreSQL·Redis를 연결하고 외부 API만 Mock으로 대체한 검색·등록 통합 테스트가 있다. CI에는 PostgreSQL·Redis 서비스가 구성되어 있으며, 최신 관리 기능의 테스트와 전체 빌드·CI 결과는 별도로 확인한다. [검색 설계](../architecture/book-search.md), [테스트 전략](../learning/testing/book-search-testing-strategy.md)을 참고한다.
+
+Feature 5 검증 이후에는 CD·배포·배포 환경 수동 검증과 포트폴리오 1차 정리를 우선한다. Feature 6·7 구현을 최초 배포의 선행 조건으로 두지 않는다.
 
 ### CI/CD 단계 구분
 

@@ -1,7 +1,7 @@
 # GitHub Actions 기반 CI 구축 및 검증
 
 > 학습일: 2026-10-21
-> 최종 수정일: 2026-10-22
+> 최종 수정일: 2026-11-06
 > 대상: MyShelf GitHub Actions CI 구축, Docker 이미지 빌드 검증 및 GHCR 게시
 > 관련 문서: [CI/CD 아키텍처](../../architecture/ci-cd.md)
 
@@ -45,22 +45,22 @@ CI는 **미리 정의한 검증을 일관되게 반복 실행**하며, 변경사
 
 | 개념 | 의미 | MyShelf 적용 |
 |---|---|---|
-| Workflow | 자동화 작업의 전체 정의 | `ci.yml` |
+| Workflow | 자동화 작업의 전체 정의 | `ci.yaml` |
 | Event | Workflow 실행 계기 | PR, Push, 수동 실행 |
 | Job | Runner에서 실행되는 작업 단위 | `build-and-test`, `verify-image`, `publish-image` |
 | Runner | Job을 실행하는 컴퓨팅 환경 | `ubuntu-latest` |
 | Step | Job 내부의 개별 작업 | Checkout, Gradle 빌드 등 |
 | Action | 재사용 가능한 자동화 작업 | `actions/checkout` 등 |
-| Service | Job에서 사용하는 서비스 컨테이너 | PostgreSQL |
+| Service | Job에서 사용하는 서비스 컨테이너 | PostgreSQL·Redis |
 | Artifact | 실행 중 생성된 결과 파일 | HTML·XML 테스트 리포트 |
 
-Workflow는 `.github/workflows/ci.yml`에 YAML로 정의하고 Git으로 버전 관리한다.
+Workflow는 `.github/workflows/ci.yaml`에 YAML로 정의하고 Git으로 버전 관리한다.
 
 이를 통해 CI 구성을 코드와 함께 검토하고 변경 이력을 추적할 수 있다.
 
 현재 MyShelf Workflow는 세 Job으로 구성된다.
 
-- `build-and-test`: Gradle 빌드, Spotless 검사 및 PostgreSQL 통합 테스트
+- `build-and-test`: Gradle 빌드, Spotless 검사 및 PostgreSQL·Redis 통합 테스트
 - `verify-image`: PR에서 Docker 이미지 빌드 가능 여부 검증
 - `publish-image`: `main` Push 이후 Docker 이미지 빌드 및 GHCR 게시
 
@@ -177,7 +177,7 @@ MyShelf는 CI에 필요한 PostgreSQL을 GitHub Actions의 Service Container로 
 
 반면 CI에서는 통합 테스트에 필요한 `myshelf_test`만 생성한다.
 
-현재 CI의 PostgreSQL 서비스는 `ci.yml`의 `build-and-test` Job에 정의되어 있으며, 로컬 Docker Compose 설정을 참조하지 않는다.
+현재 CI의 PostgreSQL·Redis 서비스는 `ci.yaml`의 `build-and-test` Job에 정의되어 있으며, 로컬 Docker Compose 설정을 참조하지 않는다.
 
 또한 `verify-image`와 `publish-image`는 기존 `Dockerfile`을 이용해 이미지를 빌드하며, Docker Compose 파일을 실행하지 않는다.
 
@@ -209,6 +209,14 @@ CI에서는 `pg_isready`를 사용하는 Health Check로 PostgreSQL의 연결 �
 **테이블이 정상적으로 생성되었는지, Flyway 마이그레이션이 성공했는지는 별도로 검증해야 한다.**
 
 ## 5. Spring Boot 테스트 환경 구성
+
+### Feature 5에서 Redis를 추가한 이유
+
+로컬 검색·등록 테스트가 성공해도 CI에 Redis가 없으면 실제 저장소 테스트는 실패한다. 당시 로그는 `RedisConnectionFailureException → RedisConnectionException → ConnectException`으로 이어졌다. 가짜 외부 API 키나 Mock 설정 문제가 아니라 Redis 연결 대상이 준비되지 않은 문제였다.
+
+현재 `build-and-test.services.redis`는 `redis:7-alpine`을 실행하고 6379 포트를 게시하며 `redis-cli ping`으로 준비 상태를 확인한다. 테스트는 Redis DB 1을 사용한다. PostgreSQL은 `myshelf_test`와 Flyway로 별도 준비한다. 로컬 Docker Compose를 CI에서 자동 재사용하는 구조는 아니다.
+
+외부 도서 API는 테스트에서 Mock으로 대체하므로 `test-api-key`는 Bean 구성용 값이다. 실제 외부 API 인증·검색 품질을 검증했다는 뜻은 아니다. 이후 절의 초기 테스트 개수와 V1 실행 결과는 당시 기록으로 유지하며, 최신 Feature 5 CI 결과는 별도로 확인한다.
 
 ### 5.1 `test` 프로필 활성화
 

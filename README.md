@@ -20,13 +20,16 @@
 - 요청 Validation 및 ProblemDetail 오류 응답
 - 외부 도서 통합 검색·더 보기 및 사용자별 등록 서재 정보 조회 (Feature 5 진행 중)
 - Redis 검색 세션 저장·만료와 단일 서버의 동일 세션 중복 요청 차단
+- UserBook 등록·재사용, ShelfBook 연결 및 ISBN별 메타데이터 캐시
+- 서재별 도서 목록 조회·메모 수정, 독서 상태 변경 및 ShelfBook 다건 삭제 (신규 관리·조회 테스트는 후속 작업)
 
 **이후 범위**
 
-- Feature 5 남은 범위: 도서 등록, UserBook 관리, ShelfBook 연결 변경 및 독서 상태 관리
-- Feature 5: Shelf 내 도서 목록 조회 및 연결 데이터가 있는 Shelf의 삭제 정책·검증
-- Feature 6: 필사 기능
-- 후속 검토: 독서 통계, Redis 캐싱, Kafka 기반 비동기 처리 및 AI Agent
+- Feature 5 남은 범위: 관리·조회 기능 테스트, 연관 삭제·회귀 검증 및 문서 정리
+- 이후 우선 작업: CD·배포 및 포트폴리오 1차 정리
+- Feature 6: 전체 도서·상세 조회, Shelf 내 순서 변경 및 검색 응답 보완
+- Feature 7: 문장 수집·필사
+- 후속 검토: 독서 통계, 일반 조회 캐싱, Kafka 기반 비동기 처리 및 AI Agent
 
 진행 상태와 계획은 [로드맵](docs/planning/roadmap.md)에서 관리합니다.
 
@@ -47,11 +50,11 @@
 ### Database / Infrastructure
 
 - PostgreSQL
-- Redis (검색 세션 저장)
+- Redis (검색 세션 저장·ISBN별 도서 메타데이터 캐시)
 - Docker
 - Docker Compose
 
-Redis는 검색 진행 상태 저장에 사용합니다. 일반 조회 캐시와 Kafka는 후속 검토 대상입니다.
+Redis는 검색 진행 상태와 ISBN별 도서 메타데이터를 별도 키로 저장합니다. 일반 조회 캐시와 Kafka는 후속 검토 대상입니다.
 
 ### Test
 

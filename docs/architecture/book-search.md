@@ -46,6 +46,7 @@
 | `NationalLibraryBookAdapter` | 병렬 HTTP 호출, 응답 변환, **현재 조회 묶음 내** ISBN 중복 제거 |
 | `BookSearchStatePort` | 검색 세션 저장·조회·삭제 |
 | `BookRegistrationLookupPort` | **반환 대상 ISBN**의 사용자별 등록 서재 목록 조회 |
+| `BookMetadataCachePort` | 반환한 도서의 ISBN별 메타데이터 저장. 등록 시 재사용 |
 
 검색 필드는 Application의 `BookSearchField` Enum으로 전달한다. Adapter가 실제 HTTP 요청을 생성할 때 `TITLE → "title"` 등 국립중앙도서관 전용 파라미터로 변환한다.
 
@@ -61,7 +62,7 @@
 | `BookSearchItem` | `ExternalBookSearchService` | 도서 메타데이터 + 사용자별 등록 서재 목록 |
 | `ExternalBookSearchResult` | `ExternalBookSearchService` | 최대 20권의 `books`, `hasNext`, `searchId` |
 
-현재 `BookRegistrationLookupPort`는 ISBN별 `BookShelfInfo` 목록만 반환하며, 독서 상태는 조회하지 않는다. 조회 SQL은 `ShelfBook` 연결이 있는 도서를 대상으로 하므로, 서재 목록이 없다는 사실만으로 `UserBook` 미등록을 판단할 수 없다.
+현재 `BookRegistrationLookupPort`는 ISBN별 `BookShelfInfo` 목록만 반환하며, 독서 상태는 조회하지 않는다. 등록 서재는 현재 연결만 뜻한다. UserBook이 없거나 연결 없이 남아 있는 경우 모두 빈 배열로 표시하고, 행 존재 여부를 별도 응답으로 구분하지 않는다.
 
 ## 최초 검색과 더 보기
 
@@ -70,14 +71,15 @@
 1. `searchId`를 생성하고 필드별 조회 위치를 모두 1페이지로 초기화한다.
 2. 각 필드의 외부 결과를 병렬 조회하고 ISBN 중복을 제거한다.
 3. `pendingBooks`에서 최대 20권을 골라 등록 정보를 조회한다.
-4. 미반환 도서나 다음 조회 위치가 남으면 상태를 저장하고, 모두 소진되면 삭제한다. `searchId`, `books`, `hasNext`를 응답한다.
+4. 미반환 도서나 다음 조회 위치가 남으면 상태를 저장하고, 모두 소진되면 삭제한다.
+5. 반환 도서의 메타데이터를 별도 캐시에 저장한 뒤 `searchId`, `books`, `hasNext`를 응답한다. 캐시 저장 장애 정책은 아래와 같다.
 
 ### 더 보기 `loadMore(userId, searchId)`
 
 1. 같은 사용자·검색 ID의 처리 중 요청이 있으면 409로 거부한다. 이후 상태를 조회하고 소유자를 확인한다. 없거나 타인 소유면 동일하게 404로 처리한다.
 2. `pendingBooks`가 20권 이상이면 **외부 API를 호출하지 않는다**.
 3. 부족하면 `nextPageByField`에 남은 필드만 추가 조회하고, 세션 전체 `seenIsbns`로 중복을 제거한다. 20권 확보·필드 소진·최대 2라운드 중 하나에 도달하면 반복을 멈춘다.
-4. 최대 20권을 선택하고 등록 서재 목록을 조회한 뒤, 결과·상태를 갱신한다.
+4. 최대 20권을 선택하고 등록 서재 목록을 조회한 뒤 상태를 저장·삭제한다. 반환 도서의 메타데이터도 캐시에 저장한다.
 
 중복 요청 차단은 상태 조회부터 저장·삭제까지 유지하고 `finally`에서 해제한다. 단일 JVM 안에서만 동작하며, Redis를 통한 서버 간 분산 잠금은 아니다.
 
@@ -95,6 +97,24 @@
 | 최종 종료 | 미반환 도서와 다음 외부 페이지가 모두 없으면 세션 삭제 |
 
 중복 결과나 조회 상한 때문에 **빈 목록과 `hasNext=true`가 함께 반환될 수 있다.** 더 보기 요청에서 남은 조회 위치를 이어서 사용한다. 이 정책을 선택한 근거는 [ADR의 `hasNext` 정책](../decisions/012-stateful-book-search-pagination.md#hasnext-정책)에 기록한다.
+
+제목·저자·출판사의 병합 우선순위는 아직 고정하지 않았다. `BookSearchField.priority`와 외부 조회 크기 비교는 [후속 실험](../planning/feature-5-book-management.md#후속-구현실험--병합-우선순위와-외부-조회-크기)이며 현재 동작으로 설명하지 않는다.
+
+## 메타데이터 캐시와 검색 세션
+
+| 구분 | 검색 세션 | 도서 메타데이터 캐시 |
+|---|---|---|
+| 기준 | searchId·소유 사용자 | ISBN, 사용자 간 공유 |
+| 저장 값 | 미반환 도서·중복 제거 집합·필드별 다음 페이지 | BookSearchMeta, 사용자 상태·메모 없음 |
+| 실제 키 | `myshelf:book-search:{searchId}` | `myshelf:book-metadata{isbn}` (현재 코드에는 구분 콜론 없음) |
+| 수명 | 마지막 저장부터 30분, 결과 소진 시 삭제 | 마지막 저장부터 30분, 검색 소진과 독립 |
+| redis 프로필 외 구현 | InMemory 검색 상태, TTL 없음 | NoOp, 조회는 빈 결과·저장은 수행하지 않음 |
+
+검색에서는 실제 반환 대상만 캐시에 저장한다. 캐시가 없거나 만료되면 등록 Service가 외부 ISBN 조회를 사용하므로 검색 세션 종료가 등록 불가를 뜻하지 않는다. 사용자별 반환 결과 스냅샷을 누적하는 구조가 아니다.
+
+현재 순서는 검색 상태 저장·삭제 → 메타데이터 캐시 저장 → 응답이다. 캐시 저장의 연결 장애·시간 초과(`BOOK_METADATA_CACHE_UNAVAILABLE`)는 로그를 남기고 응답을 계속한다. 한 도서 저장에서 실패하면 해당 루프의 남은 도서 저장도 중단된다. 다른 오류는 전파하며, 두 Redis 키 종류의 변경을 하나의 원자적 작업으로 묶지는 않는다.
+
+등록 중 캐시 조회의 연결 장애·시간 초과는 503이며, 정상적인 캐시 부재와 구분한다. 등록 흐름은 [도서 관리 구조](book-management.md#2-등록-외부-정보-준비와-db-쓰기를-분리)를 참고한다.
 
 ## 오류 처리
 

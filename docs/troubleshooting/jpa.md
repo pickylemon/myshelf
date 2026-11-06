@@ -1,5 +1,33 @@
 # JPA Troubleshooting
 
+## 연관 객체의 속성을 최상위 속성처럼 쓴 쿼리 메서드
+
+### 증상
+
+Feature 5에서 등록 테스트를 별도로 호출하지 않았는데도 Spring 컨텍스트를 사용하는 기존 테스트가 Bean 생성에 실패했다. 원인 메시지는 `No property 'isbn' found for type 'ShelfBookEntity'`였다.
+
+### 원인과 해결
+
+ShelfBookEntity에는 ISBN 필드가 없고 `userBook.isbn`에 있다. Repository 초기화 시 쿼리를 해석하므로 해당 메서드를 직접 호출하기 전에도 실패할 수 있다.
+
+파생 쿼리라면 `existsByShelf_IdAndUserBook_Isbn()`처럼 속성 경로를 지정해야 한다. 현재 코드는 연결 식별을 UserBook ID로 정리해 `existsByShelfIdAndUserBookId()`를 사용한다. 소유권 조회의 `findByIdAndUserId()`는 직접 userId가 없는 문제를 JPQL로 표현했다.
+
+```java
+@Query("""
+    SELECT sb
+    FROM ShelfBookEntity sb
+    WHERE sb.id = :shelfBookId
+      AND sb.shelf.userId = :userId
+    """)
+Optional<ShelfBookEntity> findByIdAndUserId(UUID shelfBookId, UUID userId);
+```
+
+JPQL은 테이블·컬럼이 아닌 Entity·속성을 사용하며, 전체 Entity 선택은 `SELECT sb`다. `SELECT sb.*`는 JPQL 문법이 아니다. 로그는 상위 `UnsatisfiedDependencyException`에서 멈추지 말고 Repository 생성 실패의 원인 메시지까지 확인한다.
+
+쓰기 지연으로 예외를 catch하지 못할 수 있는 경우와 `saveAndFlush()`의 선택은 [JPA 트랜잭션 학습](../learning/database/jpa-update-and-transactions.md#7-feature-5의-등록과-관리-트랜잭션)에 정리한다.
+
+---
+
 ## UUID를 미리 할당한 Entity의 `save()`
 
 - 발생일: 2026-09-24
