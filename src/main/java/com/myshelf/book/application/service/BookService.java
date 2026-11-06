@@ -2,11 +2,13 @@ package com.myshelf.book.application.service;
 
 import com.myshelf.book.application.dto.AddedBook;
 import com.myshelf.book.application.dto.BookSearchMeta;
+import com.myshelf.book.application.dto.ShelfBookItem;
 import com.myshelf.book.application.port.in.reading.UserBookUpdateReadingStatusCommand;
 import com.myshelf.book.application.port.in.reading.UserBookUpdateReadingStatusUseCase;
 import com.myshelf.book.application.port.in.registration.ShelfBookAddCommand;
 import com.myshelf.book.application.port.in.registration.ShelfBookAddUseCase;
 import com.myshelf.book.application.port.in.shelf.ShelfBookDeleteCommand;
+import com.myshelf.book.application.port.in.shelf.ShelfBookListUseCase;
 import com.myshelf.book.application.port.in.shelf.ShelfBookRemoveUseCase;
 import com.myshelf.book.application.port.in.shelf.ShelfBookUpdateCommand;
 import com.myshelf.book.application.port.in.shelf.ShelfBookUpdateUseCase;
@@ -24,6 +26,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -36,7 +39,8 @@ public class BookService
     implements ShelfBookAddUseCase,
         ShelfBookUpdateUseCase,
         ShelfBookRemoveUseCase,
-        UserBookUpdateReadingStatusUseCase {
+        UserBookUpdateReadingStatusUseCase,
+        ShelfBookListUseCase {
   private final ExternalBookSearchPort externalBookSearchPort;
   private final BookMetadataCachePort bookMetadataCachePort;
   private final ShelfGetUseCase shelfGetUseCase;
@@ -85,9 +89,14 @@ public class BookService
   @Override
   @Transactional
   public void delete(ShelfBookDeleteCommand command) {
-    ShelfBook shelfBook =
-        bookRepositoryPort.findShelfBookByIdAndUserId(command.shelfBookIds(), command.userId());
-    bookRepositoryPort.deleteShelfBook(shelfBook.id());
+    List<ShelfBook> shelfBook =
+        bookRepositoryPort.findAllShelfBookByIdAndUserId(command.shelfBookIds(), command.userId());
+
+    if (shelfBook.size() != command.shelfBookIds().size()) {
+      throw new BookException(BookErrorCode.SHELF_BOOK_NOT_FOUND);
+    }
+
+    bookRepositoryPort.deleteShelfBooks(command.shelfBookIds());
   }
 
   @Override
@@ -95,6 +104,15 @@ public class BookService
   public void update(UserBookUpdateReadingStatusCommand command) {
     bookRepositoryPort.updateReadingStatus(
         command.userBookId(), command.userId(), command.readingStatus());
+  }
+
+  @Override
+  @Transactional(readOnly = true)
+  public List<ShelfBookItem> list(UUID shelfId, UUID userId) {
+    // 1. shelf 소유권 확인 (내 서재에 책이 없는 경우(빈 목록)와 미존재·타인 소유 서재(404)를 구분)
+    shelfGetUseCase.get(shelfId, userId);
+    // 2. shelfBookItem(서재 내 등록된 도서 상세) 반환
+    return bookRepositoryPort.findAllShelfBooksByShelfIdAndUserId(shelfId, userId);
   }
 
   private BookSearchMeta resolveNewBookMetadata(String isbn) {

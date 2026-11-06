@@ -1,6 +1,8 @@
 package com.myshelf.shelf.adapter.in.web;
 
 import com.myshelf.auth.adapter.in.security.JwtUserIdResolver;
+import com.myshelf.book.application.dto.ShelfBookItem;
+import com.myshelf.book.application.port.in.shelf.ShelfBookListUseCase;
 import com.myshelf.shelf.application.port.in.ShelfCreateCommand;
 import com.myshelf.shelf.application.port.in.ShelfCreateUseCase;
 import com.myshelf.shelf.application.port.in.ShelfDeleteUseCase;
@@ -48,6 +50,7 @@ public class ShelfController {
   private final ShelfGetUseCase shelfGetUseCase;
   private final ShelfUpdateUseCase shelfUpdateUseCase;
   private final ShelfDeleteUseCase shelfDeleteUseCase;
+  private final ShelfBookListUseCase shelfBookListUseCase;
 
   @PostMapping
   @Operation(summary = "서재 생성", description = "소유자 사용자가 DB에 없으면 401(INVALID_SHELF_OWNER)을 반환한다.")
@@ -103,6 +106,17 @@ public class ShelfController {
     Shelf shelf = shelfGetUseCase.get(shelfId, userId);
 
     return ResponseEntity.ok(ShelfResponse.from(shelf));
+  }
+
+  @GetMapping("/{shelfId}/books")
+  @Operation(summary = "서재 내 등록된 도서 조회")
+  @ApiResponse(responseCode = "200", description = "서재 내 등록된 도서 정보 반환")
+  public ResponseEntity<List<ShelfBookItem>> getShelfBooks(
+      @AuthenticationPrincipal Jwt jwt, @PathVariable UUID shelfId) {
+    UUID userId = JwtUserIdResolver.resolveUserId(jwt);
+    List<ShelfBookItem> bookList = shelfBookListUseCase.list(shelfId, userId);
+
+    return ResponseEntity.ok(bookList);
   }
 
   @PutMapping("/{shelfId}")

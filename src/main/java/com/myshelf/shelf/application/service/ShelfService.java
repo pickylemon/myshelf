@@ -39,7 +39,7 @@ public class ShelfService
     Shelf shelf = new Shelf(shelfId, command.name(), command.description(), command.userId());
 
     // 4. 영속화
-    return shelfRepositoryPort.save(shelf).getId();
+    return shelfRepositoryPort.save(shelf).id();
   }
 
   @Override
@@ -61,7 +61,7 @@ public class ShelfService
 
     // 1. 소유권 체크
     shelfRepositoryPort
-        .findByIdAndUserId(shelf.getId(), shelf.getUserId())
+        .findByIdAndUserId(shelf.id(), shelf.userId())
         .orElseThrow(() -> new ShelfException(ShelfErrorCode.SHELF_NOT_FOUND));
 
     // 2. 중복 이름 검사(fail-fast)

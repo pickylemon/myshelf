@@ -9,10 +9,6 @@ public record ShelfResponse(
 
   public static ShelfResponse from(Shelf shelf) {
     return new ShelfResponse(
-        shelf.getId(),
-        shelf.getName(),
-        shelf.getDescription(),
-        shelf.getCreatedAt(),
-        shelf.getUpdatedAt());
+        shelf.id(), shelf.name(), shelf.description(), shelf.createdAt(), shelf.updatedAt());
   }
 }

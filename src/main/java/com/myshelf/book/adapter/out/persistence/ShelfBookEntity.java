@@ -16,6 +16,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.CreationTimestamp;
+import org.hibernate.annotations.UpdateTimestamp;
 
 @Entity
 @Table(name = "shelf_books")
@@ -43,6 +44,10 @@ public class ShelfBookEntity {
   @Column(name = "created_at", nullable = false, updatable = false)
   private Instant createdAt;
 
+  @UpdateTimestamp
+  @Column(name = "updated_at", nullable = false)
+  private Instant updatedAt;
+
   public static ShelfBookEntity from(
       ShelfBook shelfBook, ShelfEntity shelf, UserBookEntity userBook) {
     return new ShelfBookEntity(
@@ -51,7 +56,8 @@ public class ShelfBookEntity {
         shelf,
         shelfBook.position(),
         shelfBook.memo(),
-        shelfBook.createdAt());
+        shelfBook.createdAt(),
+        shelfBook.updatedAt());
   }
 
   public static ShelfBook toDomain(ShelfBookEntity entity) {
@@ -61,7 +67,8 @@ public class ShelfBookEntity {
         entity.getUserBook().getId(),
         entity.getPosition(),
         entity.getMemo(),
-        entity.getCreatedAt());
+        entity.getCreatedAt(),
+        entity.getUpdatedAt());
   }
 
   public void updateMemo(String memo) {

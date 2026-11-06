@@ -1,8 +1,10 @@
 package com.myshelf.book.application.port.out.registration;
 
+import com.myshelf.book.application.dto.ShelfBookItem;
 import com.myshelf.book.domain.ReadingStatus;
 import com.myshelf.book.domain.ShelfBook;
 import com.myshelf.book.domain.UserBook;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -30,7 +32,9 @@ public interface BookRepositoryPort {
 
   ShelfBook findShelfBookByIdAndUserId(UUID shelfBookId, UUID userId);
 
-  void deleteShelfBook(UUID shelfBookId);
+  void deleteShelfBooks(List<UUID> shelfBookIds);
 
-  UserBook findByUserBookIdAndUserId(UUID uuid, UUID uuid1);
+  List<ShelfBook> findAllShelfBookByIdAndUserId(List<UUID> shelfBookIds, UUID userIds);
+
+  List<ShelfBookItem> findAllShelfBooksByShelfIdAndUserId(UUID shelfId, UUID userId);
 }

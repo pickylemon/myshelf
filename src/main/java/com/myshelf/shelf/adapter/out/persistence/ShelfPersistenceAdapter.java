@@ -54,7 +54,7 @@ public class ShelfPersistenceAdapter implements ShelfRepositoryPort {
   @Override
   public boolean existsByUserIdAndNameExcludingSelf(Shelf shelf) {
     return shelfJpaRepository.existsByUserIdAndNameAndIdNot(
-        shelf.getUserId(), shelf.getName(), shelf.getId());
+        shelf.userId(), shelf.name(), shelf.id());
   }
 
   @Override
@@ -76,14 +76,13 @@ public class ShelfPersistenceAdapter implements ShelfRepositoryPort {
   @Override
   @Transactional
   public Optional<Shelf> update(Shelf shelf) {
-    Optional<ShelfEntity> found =
-        shelfJpaRepository.findByIdAndUserId(shelf.getId(), shelf.getUserId());
+    Optional<ShelfEntity> found = shelfJpaRepository.findByIdAndUserId(shelf.id(), shelf.userId());
 
     if (found.isEmpty()) return Optional.empty();
 
     try {
       ShelfEntity entity = found.get();
-      entity.update(shelf.getName(), shelf.getDescription());
+      entity.update(shelf.name(), shelf.description());
 
       shelfJpaRepository.flush();
 

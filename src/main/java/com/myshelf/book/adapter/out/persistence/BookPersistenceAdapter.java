@@ -1,6 +1,7 @@
 package com.myshelf.book.adapter.out.persistence;
 
 import com.myshelf.book.application.dto.BookShelfInfo;
+import com.myshelf.book.application.dto.ShelfBookItem;
 import com.myshelf.book.application.port.out.registration.BookRegistrationLookupPort;
 import com.myshelf.book.application.port.out.registration.BookRepositoryPort;
 import com.myshelf.book.domain.ReadingStatus;
@@ -123,27 +124,33 @@ public class BookPersistenceAdapter implements BookRegistrationLookupPort, BookR
 
   @Override
   public ShelfBook findShelfBookByIdAndUserId(UUID shelfBookId, UUID userId) {
-    return null; // TODO 수정 예정
-  }
-
-  @Override
-  public void deleteShelfBook(UUID shelfBookId) {
-    ShelfBookEntity entity =
+    ShelfBookEntity found =
         shelfBookJpaRepository
-            .findById(shelfBookId)
+            .findByIdAndUserId(shelfBookId, userId)
             .orElseThrow(() -> new BookException(BookErrorCode.SHELF_BOOK_NOT_FOUND));
 
-    shelfBookJpaRepository.delete(entity);
+    return ShelfBookEntity.toDomain(found);
   }
 
   @Override
-  public UserBook findByUserBookIdAndUserId(UUID userBookId, UUID userId) {
-    UserBookEntity userBookEntity =
-        userBookJpaRepository
-            .findByIdAndUserId(userBookId, userId)
-            .orElseThrow(() -> new BookException(BookErrorCode.USER_BOOK_NOT_FOUND));
+  public List<ShelfBook> findAllShelfBookByIdAndUserId(List<UUID> shelfBookIds, UUID userId) {
+    List<ShelfBookEntity> foundEntities =
+        shelfBookJpaRepository.findAllByIdAndUserId(shelfBookIds, userId);
+    return foundEntities.stream().map(ShelfBookEntity::toDomain).toList();
+  }
 
-    return UserBookEntity.toDomain(userBookEntity);
+  @Override
+  public void deleteShelfBooks(List<UUID> shelfBookIds) {
+    List<ShelfBookEntity> entities = shelfBookJpaRepository.findAllById(shelfBookIds);
+
+    shelfBookJpaRepository.deleteAll(entities);
+  }
+
+  @Override
+  public List<ShelfBookItem> findAllShelfBooksByShelfIdAndUserId(UUID shelfId, UUID userId) {
+    List<ShelfBookEntity> shelfBooks =
+        shelfBookJpaRepository.findAllByShelfIdAndUserId(shelfId, userId);
+    return shelfBooks.stream().map(this::toItem).toList();
   }
 
   private boolean isDuplicateRegistration(Throwable exception) {
@@ -151,5 +158,23 @@ public class BookPersistenceAdapter implements BookRegistrationLookupPort, BookR
             exception, ConstraintKind.UNIQUE, USER_BOOK_UNIQUE_CONSTRAINT)
         || ConstraintViolationMatcher.matches(
             exception, ConstraintKind.UNIQUE, SHELF_BOOK_UNIQUE_CONSTRAINT);
+  }
+
+  private ShelfBookItem toItem(ShelfBookEntity shelf) {
+    UserBookEntity userBook = shelf.getUserBook();
+
+    return new ShelfBookItem(
+        shelf.getId(),
+        userBook.getId(),
+        userBook.getIsbn(),
+        userBook.getTitle(),
+        userBook.getAuthor(),
+        userBook.getPublisher(),
+        userBook.getCoverImageUrl(),
+        userBook.getReadingStatus(),
+        shelf.getMemo(),
+        shelf.getPosition(),
+        shelf.getCreatedAt(),
+        shelf.getUpdatedAt());
   }
 }

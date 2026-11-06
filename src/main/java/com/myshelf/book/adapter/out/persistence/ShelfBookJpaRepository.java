@@ -50,4 +50,27 @@ public interface ShelfBookJpaRepository extends JpaRepository<ShelfBookEntity, U
         AND sb.shelf.userId = :userId
     """)
   Optional<ShelfBookEntity> findByIdAndUserId(UUID shelfBookId, UUID userId);
+
+  @Query(
+      """
+        SELECT sb
+        FROM ShelfBookEntity sb
+        WHERE sb.id IN :shelfBookIds
+        AND sb.shelf.userId = :userId
+    """)
+  List<ShelfBookEntity> findAllByIdAndUserId(List<UUID> shelfBookIds, UUID userId);
+
+  @Query(
+      """
+        SELECT sb
+        FROM ShelfBookEntity sb
+        JOIN FETCH sb.userBook
+        WHERE sb.shelf.id = :shelfId
+        AND sb.shelf.userId = :userId
+        ORDER BY CASE WHEN sb.position IS NOT NULL THEN 0 ELSE 1 END,
+              sb.position ASC,
+              sb.updatedAt DESC,
+              sb.id DESC
+      """)
+  List<ShelfBookEntity> findAllByShelfIdAndUserId(UUID shelfId, UUID userId);
 }
