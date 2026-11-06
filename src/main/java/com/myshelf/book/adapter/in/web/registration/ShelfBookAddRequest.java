@@ -9,6 +9,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.NotNull;
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 public record ShelfBookAddRequest(@NotEmpty List<@NotNull @Valid BookInput> books) {
@@ -21,8 +22,8 @@ public record ShelfBookAddRequest(@NotEmpty List<@NotNull @Valid BookInput> book
             .toList());
   }
 
-  public List<String> getIsbnList() {
-    return this.books().stream().map(BookInput::isbn).toList();
+  public List<String> getValidIsbnList() {
+    return this.books().stream().filter(Objects::nonNull).map(BookInput::isbn).toList();
   }
 
   public record BookInput(@NotBlank String isbn, @NotNull ReadingStatus readingStatus) {}
@@ -32,6 +33,6 @@ public record ShelfBookAddRequest(@NotEmpty List<@NotNull @Valid BookInput> book
     if (books == null) {
       return true; // 목록 누락은 @NotEmpty가 검증한다.
     }
-    return DuplicateChecker.isUnique(this.getIsbnList());
+    return DuplicateChecker.isUnique(this.getValidIsbnList());
   }
 }
