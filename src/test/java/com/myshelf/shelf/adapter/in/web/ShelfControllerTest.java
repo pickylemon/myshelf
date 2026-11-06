@@ -16,6 +16,9 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.myshelf.auth.adapter.in.security.ProblemDetailAuthenticationEntryPoint;
+import com.myshelf.book.application.dto.ShelfBookItem;
+import com.myshelf.book.application.port.in.shelf.ShelfBookListUseCase;
+import com.myshelf.book.domain.ReadingStatus;
 import com.myshelf.global.config.SecurityConfig;
 import com.myshelf.shelf.application.port.in.ShelfCreateCommand;
 import com.myshelf.shelf.application.port.in.ShelfCreateUseCase;
@@ -65,8 +68,96 @@ class ShelfControllerTest {
   @MockitoBean ShelfGetUseCase shelfGetUseCase;
   @MockitoBean ShelfUpdateUseCase shelfUpdateUseCase;
   @MockitoBean ShelfDeleteUseCase shelfDeleteUseCase;
+  @MockitoBean ShelfBookListUseCase shelfBookListUseCase;
   @MockitoBean JwtDecoder jwtDecoder;
   @MockitoBean AuthenticationManager authenticationManager;
+
+  /** 목록 경로의 UUID 변환 실패는 UseCase 호출 전에 거부한다. */
+  @Test
+  void 서재별_도서_목록의_ID가_UUID가_아니면_400이다() throws Exception {
+    mockMvc
+        .perform(
+            get("/shelves/not-a-uuid/books")
+                .with(jwt().jwt(token -> token.subject(USER_ID.toString()))))
+        .andExpect(status().isBadRequest());
+    verifyNoInteractions(shelfBookListUseCase);
+  }
+
+  /** Application 조회 DTO를 도서 목록 JSON으로 직렬화하고 인증 사용자 범위를 전달한다. */
+  @Test
+  void 서재별_도서_목록을_조회하고_필드를_반환한다() throws Exception {
+    UUID shelfId = UUID.randomUUID();
+    UUID linkId = UUID.randomUUID();
+    UUID bookId = UUID.randomUUID();
+    java.time.Instant createdAt = java.time.Instant.parse("2026-10-01T00:00:00Z");
+    when(shelfBookListUseCase.list(shelfId, USER_ID))
+        .thenReturn(
+            List.of(
+                new ShelfBookItem(
+                    linkId,
+                    bookId,
+                    "isbn",
+                    "제목",
+                    "저자",
+                    "출판사",
+                    "cover",
+                    ReadingStatus.READ,
+                    "메모",
+                    null,
+                    createdAt,
+                    createdAt)));
+
+    mockMvc
+        .perform(
+            get("/shelves/{id}/books", shelfId)
+                .with(jwt().jwt(token -> token.subject(USER_ID.toString()))))
+        .andExpect(status().isOk())
+        .andExpect(jsonPath("$.length()").value(1))
+        .andExpect(jsonPath("$[0].shelfBookId").value(linkId.toString()))
+        .andExpect(jsonPath("$[0].userBookId").value(bookId.toString()))
+        .andExpect(jsonPath("$[0].title").value("제목"))
+        .andExpect(jsonPath("$[0].readingStatus").value("READ"))
+        .andExpect(jsonPath("$[0].memo").value("메모"))
+        .andExpect(jsonPath("$[0].createdAt").value(createdAt.toString()))
+        .andExpect(jsonPath("$[0].userId").doesNotExist());
+    verify(shelfBookListUseCase).list(shelfId, USER_ID);
+  }
+
+  /** 정상적인 빈 서재는 200과 빈 JSON 배열을 반환한다. */
+  @Test
+  void 빈_서재의_도서_목록은_200과_빈_배열이다() throws Exception {
+    UUID shelfId = UUID.randomUUID();
+    when(shelfBookListUseCase.list(shelfId, USER_ID)).thenReturn(List.of());
+    mockMvc
+        .perform(
+            get("/shelves/{id}/books", shelfId)
+                .with(jwt().jwt(token -> token.subject(USER_ID.toString()))))
+        .andExpect(status().isOk())
+        .andExpect(content().json("[]"));
+  }
+
+  /** 목록에서도 없는·타인 소유 서재는 Shelf의 404 정책을 유지한다. */
+  @Test
+  void 서재별_목록의_서재_부재는_404이다() throws Exception {
+    UUID shelfId = UUID.randomUUID();
+    when(shelfBookListUseCase.list(shelfId, USER_ID))
+        .thenThrow(new ShelfException(ShelfErrorCode.SHELF_NOT_FOUND));
+    mockMvc
+        .perform(
+            get("/shelves/{id}/books", shelfId)
+                .with(jwt().jwt(token -> token.subject(USER_ID.toString()))))
+        .andExpect(status().isNotFound())
+        .andExpect(jsonPath("$.code").value("SHELF_NOT_FOUND"));
+  }
+
+  /** 새 목록 경로에도 실제 보안 설정의 인증 차단이 적용된다. */
+  @Test
+  void 미인증_서재별_도서_목록은_401이다() throws Exception {
+    mockMvc
+        .perform(get("/shelves/{id}/books", UUID.randomUUID()))
+        .andExpect(status().isUnauthorized());
+    verifyNoInteractions(shelfBookListUseCase);
+  }
 
   /** 각 엔드포인트의 미인증 요청을 Controller·UseCase에 도달하기 전에 거부한다. JWT 오류 종류는 반복하지 않는다. */
   @ParameterizedTest

@@ -83,7 +83,7 @@ class ShelfBookAddIntegrationTest {
     }
   }
 
-  // TODO(테스트 구현예졍): 한 요청에서 앞 도서는 저장 가능하고 뒤 도서는 DB 제약 위반이 나도록 준비한다.
+  // TODO(직접 작성): 한 요청에서 앞 도서는 저장 가능하고 뒤 도서는 DB 제약 위반이 나도록 준비한다.
   // HTTP 성공이 아님을 확인하고, 앞 도서 생성·기존 도서의 상태 변경·ShelfBook 연결까지
   // 모두 롤백됐는지 JDBC로 검증한다. 테스트 메서드에 @Transactional을 붙이지 않는다.
   // 재사용 가능한 Redis 메타데이터가 남는 것은 PostgreSQL 롤백 실패가 아니다.
@@ -306,4 +306,36 @@ class ShelfBookAddIntegrationTest {
   }
 
   private record BookInput(String isbn, ReadingStatus readingStatus) {}
+
+  /** 연결 없는 UserBook은 같은 ID로 재사용하고 요청 상태·메모 없는 새 연결을 적용한다. */
+  @Test
+  void 모든_서재에서_제거했던_도서는_기존_ID로_재등록한다() throws Exception {
+    UUID userId = createUser();
+    UUID shelfId = insertShelf(userId, "재등록 서재");
+    String isbn = newIsbn();
+    UUID bookId = insertUserBook(userId, isbn, "기존 제목", ReadingStatus.READ);
+
+    JsonNode response =
+        addBooks(userId, shelfId, List.of(new BookInput(isbn, ReadingStatus.READING)));
+
+    UUID linkId = UUID.fromString(response.get("books").get(0).get("shelfBookId").asString());
+    assertThat(
+            jdbcTemplate.queryForMap(
+                "select user_book_id, memo from shelf_books where id = ?", linkId))
+        .containsEntry("user_book_id", bookId)
+        .containsEntry("memo", null);
+    assertThat(
+            jdbcTemplate.queryForMap(
+                "select title, reading_status_code from user_books where id = ?", bookId))
+        .containsEntry("title", "기존 제목")
+        .containsEntry("reading_status_code", "READING");
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from user_books where user_id = ? and isbn = ?",
+                Long.class,
+                userId,
+                isbn))
+        .isEqualTo(1L);
+    verifyNoInteractions(externalBookSearchPort);
+  }
 }

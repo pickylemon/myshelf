@@ -18,6 +18,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.data.redis.RedisConnectionFailureException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.ValueOperations;
@@ -35,8 +36,28 @@ class RedisBookMetadataCacheTest {
     when(template.opsForValue()).thenReturn(values);
   }
 
-  // TODO(테스트 구현예졍): QueryTimeoutException을 조회·저장에서 발생시켜
-  // BOOK_METADATA_CACHE_UNAVAILABLE로 변환되고 원인 예외가 보존되는지 검증한다.
+  /** 키 부재와 구분하여 조회·저장의 시간 초과를 원인과 함께 변환한다. */
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void 캐시_조회와_저장의_시간_초과는_장애로_변환한다(boolean saving) {
+    BookSearchMeta metadata = book();
+    String key = "myshelf:book-metadata" + metadata.isbn();
+    QueryTimeoutException failure = new QueryTimeoutException("test timeout");
+    if (saving) doThrow(failure).when(values).set(key, metadata, Duration.ofMinutes(30));
+    else when(values.get(key)).thenThrow(failure);
+
+    assertThatThrownBy(
+            () -> {
+              if (saving) cache.save(metadata);
+              else cache.findByIsbn(metadata.isbn());
+            })
+        .isInstanceOfSatisfying(
+            BookException.class,
+            ex ->
+                assertThat(ex.getErrorCode())
+                    .isEqualTo(BookErrorCode.BOOK_METADATA_CACHE_UNAVAILABLE))
+        .hasCause(failure);
+  }
 
   @Test
   void 캐시의_도서정보를_반환한다() {

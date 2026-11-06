@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import com.myshelf.book.application.dto.BookShelfInfo;
+import com.myshelf.book.application.dto.ShelfBookItem;
 import com.myshelf.book.domain.ReadingStatus;
 import com.myshelf.book.domain.ShelfBook;
 import com.myshelf.book.domain.UserBook;
@@ -42,6 +43,127 @@ class BookPersistenceAdapterIntegrationTest {
   @Autowired PlatformTransactionManager transactionManager;
 
   private final List<UUID> userIds = new ArrayList<>();
+
+  // TODO(직접 작성): 위치 지정 우선·position 오름차순·수정 시각/ID 내림차순 정렬을 검증한다.
+
+  /** 트랜잭션 내 메모 변경이 commit되고 연결 ID·생성 시각은 유지된다. */
+  @ParameterizedTest
+  @NullSource
+  @ValueSource(strings = {"", "새 메모"})
+  void 메모_변경은_생성_시각과_연결_정보를_보존한다(String memo) {
+    UUID owner = createUser();
+    UUID shelf = insertShelf(owner, "메모 서재");
+    UUID book = insertUserBook(owner, "9781234567890");
+    // null·빈 문자열 요청도 실제 변경이 되도록 기존 메모를 준비한다.
+    ShelfBook saved =
+        adapter.createShelfBook(
+            new ShelfBook(UUID.randomUUID(), shelf, book, null, "기존 메모", null, null));
+    Instant beforeTime = Instant.parse("2026-10-01T00:00:00Z");
+    jdbcTemplate.update(
+        "update shelf_books set updated_at = ? where id = ?",
+        Timestamp.from(beforeTime),
+        saved.id());
+    Map<String, Object> before =
+        jdbcTemplate.queryForMap("select * from shelf_books where id = ?", saved.id());
+
+    new TransactionTemplate(transactionManager)
+        .executeWithoutResult(status -> adapter.updateShelfBookMemo(saved.id(), memo));
+
+    Map<String, Object> after =
+        jdbcTemplate.queryForMap("select * from shelf_books where id = ?", saved.id());
+    assertThat(after.get("memo")).isEqualTo(memo);
+    assertThat(((Timestamp) after.get("updated_at")).toInstant()).isAfter(beforeTime);
+    before.remove("memo");
+    before.remove("updated_at");
+    after.remove("memo");
+    after.remove("updated_at");
+    assertThat(after).isEqualTo(before);
+  }
+
+  /** 실제 CHECK 제약은 2,000자를 허용하고 초과 변경은 rollback한다. */
+  @Test
+  void 메모_길이_CHECK는_경계값을_허용하고_초과_변경을_취소한다() {
+    UUID owner = createUser();
+    UUID shelf = insertShelf(owner, "길이 서재");
+    UUID book = insertUserBook(owner, "9781234567890");
+    ShelfBook saved =
+        adapter.createShelfBook(
+            new ShelfBook(UUID.randomUUID(), shelf, book, null, "메".repeat(2000), null, null));
+    Map<String, Object> before =
+        jdbcTemplate.queryForMap("select * from shelf_books where id = ?", saved.id());
+
+    assertThatThrownBy(
+            () ->
+                new TransactionTemplate(transactionManager)
+                    .executeWithoutResult(
+                        status -> adapter.updateShelfBookMemo(saved.id(), "메".repeat(2001))))
+        .isInstanceOf(DataIntegrityViolationException.class);
+
+    assertThat(jdbcTemplate.queryForMap("select * from shelf_books where id = ?", saved.id()))
+        .isEqualTo(before);
+  }
+
+  /** 단건·다건 조회는 연결된 Shelf의 소유권 조건을 적용한다. */
+  @Test
+  void ShelfBook_조회는_본인_연결만_반환한다() {
+    UUID owner = createUser();
+    UUID other = createUser();
+    ShelfBook owned =
+        adapter.createShelfBook(
+            new ShelfBook(
+                UUID.randomUUID(),
+                insertShelf(owner, "내 서재"),
+                insertUserBook(owner, "9781234567890")));
+    ShelfBook foreign =
+        adapter.createShelfBook(
+            new ShelfBook(
+                UUID.randomUUID(),
+                insertShelf(other, "타인 서재"),
+                insertUserBook(other, "9781234567890")));
+
+    assertThat(adapter.findShelfBookByIdAndUserId(owned.id(), owner)).isEqualTo(owned);
+    assertThat(
+            adapter.findAllShelfBookByIdAndUserId(
+                List.of(owned.id(), foreign.id(), UUID.randomUUID()), owner))
+        .containsExactly(owned);
+    assertThatThrownBy(() -> adapter.findShelfBookByIdAndUserId(foreign.id(), owner))
+        .isInstanceOfSatisfying(
+            BookException.class,
+            ex -> assertThat(ex.getErrorCode()).isEqualTo(BookErrorCode.SHELF_BOOK_NOT_FOUND));
+  }
+
+  /** JOIN FETCH한 도서 필드를 트랜잭션 밖의 DTO 변환까지 읽고 다른 서재 데이터는 제외한다. */
+  @Test
+  void 서재별_조회는_도서와_연결의_전체_필드를_DTO로_변환한다() {
+    UUID owner = createUser();
+    UUID shelf = insertShelf(owner, "목록 서재");
+    UUID book = insertUserBook(owner, "9781234567890");
+    jdbcTemplate.update(
+        "update user_books set author = '저자', publisher = '출판사', cover_image_url = 'cover' where id = ?",
+        book);
+    ShelfBook saved =
+        adapter.createShelfBook(new ShelfBook(UUID.randomUUID(), shelf, book, 3, "메모", null, null));
+    UUID otherShelf = insertShelf(owner, "별도 서재");
+    insertShelfBook(otherShelf, insertUserBook(owner, "9781234567891"));
+
+    assertThat(adapter.findAllShelfBooksByShelfIdAndUserId(shelf, owner))
+        .containsExactly(
+            new ShelfBookItem(
+                saved.id(),
+                book,
+                "9781234567890",
+                "저장된 도서",
+                "저자",
+                "출판사",
+                "cover",
+                ReadingStatus.WANT_TO_READ,
+                "메모",
+                3,
+                saved.createdAt(),
+                saved.updatedAt()));
+    assertThat(adapter.findAllShelfBooksByShelfIdAndUserId(shelf, createUser())).isEmpty();
+    assertThat(adapter.findAllShelfBooksByShelfIdAndUserId(UUID.randomUUID(), owner)).isEmpty();
+  }
 
   @BeforeEach
   void 테스트_DB를_사용하는지_확인한다() {
@@ -295,7 +417,7 @@ class BookPersistenceAdapterIntegrationTest {
     UUID owner = createUser();
     UUID shelfId = insertShelf(owner, "내 서재");
     UUID bookId = insertUserBook(owner, "9781234567890");
-    ShelfBook input = new ShelfBook(UUID.randomUUID(), shelfId, bookId, null, memo, null);
+    ShelfBook input = new ShelfBook(UUID.randomUUID(), shelfId, bookId, null, memo, null, null);
     assertThat(adapter.existsByShelfIdAndUserBookId(shelfId, bookId)).isFalse();
     assertThat(adapter.existsShelfBookByUserBookId(bookId)).isFalse();
 
@@ -307,6 +429,7 @@ class BookPersistenceAdapterIntegrationTest {
     assertThat(saved.position()).isNull();
     assertThat(saved.memo()).isEqualTo(memo);
     assertThat(saved.createdAt()).isNotNull();
+    assertThat(saved.updatedAt()).isNotNull();
     Map<String, Object> row =
         jdbcTemplate.queryForMap("select * from shelf_books where id = ?", saved.id());
     assertThat(row.get("shelf_id")).isEqualTo(shelfId);
@@ -314,6 +437,7 @@ class BookPersistenceAdapterIntegrationTest {
     assertThat(row.get("position")).isNull();
     assertThat(row.get("memo")).isEqualTo(memo);
     assertThat(((Timestamp) row.get("created_at")).toInstant()).isEqualTo(saved.createdAt());
+    assertThat(((Timestamp) row.get("updated_at")).toInstant()).isEqualTo(saved.updatedAt());
     assertThat(adapter.existsByShelfIdAndUserBookId(shelfId, bookId)).isTrue();
     assertThat(adapter.existsShelfBookByUserBookId(bookId)).isTrue();
     assertThat(adapter.existsByShelfIdAndUserBookId(insertShelf(owner, "다른 서재"), bookId)).isFalse();

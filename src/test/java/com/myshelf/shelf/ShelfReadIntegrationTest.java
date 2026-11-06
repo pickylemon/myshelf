@@ -70,7 +70,7 @@ class ShelfReadIntegrationTest {
         .andExpect(jsonPath("$.length()").value(2))
         .andExpect(
             jsonPath("$[*].id")
-                .value(containsInAnyOrder(first.getId().toString(), second.getId().toString())))
+                .value(containsInAnyOrder(first.id().toString(), second.id().toString())))
         .andExpect(jsonPath("$[*].userId").isEmpty()); // 응답 스펙 검증. userId는 노출하지 않는다.
   }
 
@@ -95,16 +95,16 @@ class ShelfReadIntegrationTest {
     Map<String, Object> stored =
         jdbcTemplate.queryForMap(
             "select name, description, created_at, updated_at from shelves where id = ?",
-            shelf.getId());
+            shelf.id());
 
     String response =
         mockMvc
             .perform(
-                get("/shelves/{shelfId}", shelf.getId())
+                get("/shelves/{shelfId}", shelf.id())
                     .header(HttpHeaders.AUTHORIZATION, bearerToken(userId)))
             .andExpect(status().isOk())
             .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-            .andExpect(jsonPath("$.id").value(shelf.getId().toString()))
+            .andExpect(jsonPath("$.id").value(shelf.id().toString()))
             .andExpect(jsonPath("$.name").value(stored.get("name")))
             .andExpect(jsonPath("$.description").value(stored.get("description")))
             .andExpect(jsonPath("$.userId").doesNotExist()) // 응답 스펙 검증
@@ -125,9 +125,7 @@ class ShelfReadIntegrationTest {
   void inaccessibleShelfReturnsNotFound(boolean ownedByOtherUser) throws Exception {
     UUID userId = createUser();
     UUID shelfId =
-        ownedByOtherUser
-            ? createShelf(createUser(), "타인의 서재", "비공개 설명").getId()
-            : UUID.randomUUID();
+        ownedByOtherUser ? createShelf(createUser(), "타인의 서재", "비공개 설명").id() : UUID.randomUUID();
 
     mockMvc
         .perform(

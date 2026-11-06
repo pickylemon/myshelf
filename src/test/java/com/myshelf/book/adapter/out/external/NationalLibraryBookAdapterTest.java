@@ -38,8 +38,28 @@ import org.springframework.web.client.RestClientResponseException;
 /** 실제 HTTP 통신 없이 외부 응답과 통신 오류의 변환을 검증한다. */
 class NationalLibraryBookAdapterTest {
 
-  // TODO(테스트 구현예졍): findByIsbn의 정상 조회. 부분 일치 항목보다 뒤에 정확히 일치하는 항목을 두고,
-  // 요청의 isbn·page_no=1과 반환된 도서의 모든 메타데이터를 검증한다.
+  /** 부분 일치 결과보다 뒤에 있어도 요청 ISBN과 정확히 같은 도서의 필드를 반환한다. */
+  @Test
+  void ISBN_단건_조회는_정확히_일치하는_도서를_선택한다() {
+    server
+        .expect(queryParam("isbn", "9781234567890"))
+        .andExpect(queryParam("cert_key", "test-api-key"))
+        .andExpect(queryParam("page_no", "1"))
+        .andRespond(
+            withSuccess(
+                """
+            {"TOTAL_COUNT":2,"docs":[
+              {"EA_ISBN":"9781234567890-extra","TITLE":"부분 일치"},
+              {"EA_ISBN":"9781234567890","TITLE":"정확한 제목","AUTHOR":"저자",
+               "PUBLISHER":"출판사","PUBLISH_PREDATE":"20261001","TITLE_URL":"cover"}
+            ]}
+            """,
+                MediaType.APPLICATION_JSON));
+    assertThat(adapter.findByIsbn("9781234567890"))
+        .contains(
+            new com.myshelf.book.application.dto.BookSearchMeta(
+                "9781234567890", "정확한 제목", "저자", "출판사", LocalDate.of(2026, 10, 1), "cover"));
+  }
 
   private MockRestServiceServer server;
   private NationalLibraryBookAdapter adapter;

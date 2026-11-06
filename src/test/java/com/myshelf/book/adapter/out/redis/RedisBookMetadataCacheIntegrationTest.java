@@ -49,8 +49,23 @@ class RedisBookMetadataCacheIntegrationTest {
     for (String key : keys) template.delete(key);
   }
 
-  // TODO(테스트 구현예졍): 키의 TTL을 짧게 변경한 뒤 같은 ISBN으로 다시 저장한다.
-  // TTL이 다시 30분으로 늘어나는지 확인한다. 운영 상수나 전체 Redis 데이터는 변경하지 않는다.
+  /** 같은 ISBN의 재저장은 해당 키의 짧아진 TTL을 다시 30분으로 설정한다. */
+  @Test
+  void 같은_ISBN의_재저장은_TTL을_갱신한다() {
+    String isbn = newIsbn();
+    BookSearchMeta book = new BookSearchMeta(isbn, "제목", null, null, null, null);
+    cache.save(book);
+    String key = "myshelf:book-metadata" + isbn;
+    assertThat(template.expire(key, Duration.ofSeconds(5))).isTrue();
+    Long shortened = template.getExpire(key, TimeUnit.MILLISECONDS);
+
+    cache.save(book);
+
+    assertThat(template.getExpire(key, TimeUnit.MILLISECONDS))
+        .isGreaterThan(shortened)
+        .isLessThanOrEqualTo(Duration.ofMinutes(30).toMillis());
+    assertThat(cache.findByIsbn(isbn)).contains(book);
+  }
 
   @Test
   void 날짜를_포함한_도서정보의_모든_필드를_저장하고_복원한다() {

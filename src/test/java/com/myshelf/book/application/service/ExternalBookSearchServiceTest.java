@@ -54,8 +54,32 @@ import org.springframework.data.redis.serializer.SerializationException;
 @ExtendWith(MockitoExtension.class)
 class ExternalBookSearchServiceTest {
 
-  // TODO(테스트 구현예졍): 메타데이터 캐시 save가 BOOK_METADATA_CACHE_UNAVAILABLE을 던져도
-  // 검색 결과·hasNext·세션 저장/삭제가 정상이고, 나머지 캐시 저장은 중단되는지 검증한다.
+  /** 캐시 연결 장애는 검색을 실패시키지 않으며 현재 캐시 저장 루프만 중단한다. */
+  @ParameterizedTest
+  @ValueSource(booleans = {true, false})
+  void 메타데이터_저장_장애여도_검색_응답과_세션_진행은_유지한다(boolean hasNext) {
+    UUID userId = UUID.randomUUID();
+    UUID searchId = UUID.randomUUID();
+    List<BookSearchMeta> pending =
+        IntStream.range(0, hasNext ? 21 : 2)
+            .mapToObj(i -> new BookSearchMeta("isbn-" + i, "제목", null, null, null, null))
+            .toList();
+    when(bookSearchStatePort.findById(searchId))
+        .thenReturn(Optional.of(new BookSearchState(userId, "자바", pending, Set.of(), Map.of())));
+    when(bookRegistrationLookupPort.lookup(eq(userId), any())).thenReturn(Map.of());
+    doThrow(new BookException(BookErrorCode.BOOK_METADATA_CACHE_UNAVAILABLE))
+        .when(bookMetadataCachePort)
+        .save(pending.get(0));
+
+    ExternalBookSearchResult result = service.loadMore(userId, searchId);
+
+    assertThat(result.books()).hasSize(hasNext ? 20 : 2);
+    assertThat(result.hasNext()).isEqualTo(hasNext);
+    if (hasNext) verify(bookSearchStatePort).save(eq(searchId), any());
+    else verify(bookSearchStatePort).delete(searchId);
+    verify(bookMetadataCachePort).save(pending.get(0));
+    verifyNoMoreInteractions(bookMetadataCachePort);
+  }
 
   @Mock ExternalBookSearchPort externalBookSearchPort;
   @Mock BookSearchStatePort bookSearchStatePort;

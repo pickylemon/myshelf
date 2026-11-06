@@ -42,7 +42,22 @@ class ShelfBookAddControllerTest {
   @MockitoBean JwtDecoder jwtDecoder;
   @MockitoBean AuthenticationManager authenticationManager;
 
-  // TODO(테스트 구현예졍): 같은 ISBN을 두 번 포함한 요청이 400으로 거부되고 UseCase가 호출되지 않는지 검증한다.
+  /** 동일 ISBN에 서로 다른 상태를 보낸 요청도 하나로 합치지 않고 거부한다. */
+  @Test
+  void 요청_목록의_중복_ISBN은_400으로_거부한다() throws Exception {
+    mockMvc
+        .perform(
+            post("/shelves/{id}/books", UUID.randomUUID())
+                .with(jwt())
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    """
+                {"books":[{"isbn":"same","readingStatus":"READ"},
+                          {"isbn":"same","readingStatus":"READING"}]}
+                """))
+        .andExpect(status().isBadRequest());
+    verifyNoInteractions(useCase);
+  }
 
   @Test
   void JWT의_사용자와_서재_ID와_도서_목록을_Command로_전달하고_응답을_반환한다() throws Exception {
