@@ -164,9 +164,9 @@ when(shelfRepositoryPort.save(any(Shelf.class)))
 
         return new Shelf(
             savedId,
-            shelf.getName(),
-            shelf.getDescription(),
-            shelf.getUserId()
+            shelf.name(),
+            shelf.description(),
+            shelf.userId()
         );
     });
 ```
@@ -539,9 +539,9 @@ Mock을 사용하는 테스트에서는 두 가지 역할을 구분해야 한다
 verify(shelfRepositoryPort)
     .existsByUserIdAndNameExcludingSelf(
         argThat(shelf ->
-            shelf.getId().equals(id)
-                && shelf.getUserId().equals(userId)
-                && shelf.getName().equals(name)
+            shelf.id().equals(id)
+                && shelf.userId().equals(userId)
+                && shelf.name().equals(name)
         )
     );
 ```

@@ -11,7 +11,7 @@ UUID userId = createUser();
 Shelf shelf = createShelf(userId, "내 서재", "설명");
 
 mockMvc.perform(
-    get("/shelves/{shelfId}", shelf.getId())
+    get("/shelves/{shelfId}", shelf.id())
         .header(HttpHeaders.AUTHORIZATION, bearerToken(userId))
 );
 
