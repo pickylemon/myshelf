@@ -52,7 +52,29 @@ class ShelfBookManagementIntegrationTest {
   private static final Instant BEFORE = Instant.parse("2026-10-01T00:00:00Z");
   private final List<UUID> userIds = new ArrayList<>();
 
-  // TODO(직접 작성): 마지막 ShelfBook을 API로 삭제해도 UserBook이 남는지 검증한다.
+  @Test
+  void 마지막_서재_연결을_삭제해도_UserBook은_보존한다() throws Exception {
+    UUID user = createUser();
+    UUID shelf = insertShelf(user);
+    UUID book = insertBook(user, ReadingStatus.READ);
+    UUID link = insertLink(shelf, book, "삭제할 메모");
+    Map<String, Object> bookBefore = bookRow(book);
+
+    perform(
+        user,
+        delete("/shelf-books"),
+        objectMapper.writeValueAsString(Map.of("shelfBookIds", List.of(link))));
+
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from shelf_books where user_book_id = ?", Long.class, book))
+        .isZero();
+    assertThat(bookRow(book)).isEqualTo(bookBefore);
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from shelves where id = ?", Long.class, shelf))
+        .isEqualTo(1L);
+  }
 
   @BeforeEach
   void 테스트_DB인지_확인한다() {
@@ -133,7 +155,8 @@ class ShelfBookManagementIntegrationTest {
     assertThat(linkRow(second)).isEqualTo(secondBefore);
     assertThat(
             jdbcTemplate.queryForList(
-                "select ub.reading_status_code from shelf_books sb join user_books ub on ub.id = sb.user_book_id where ub.id = ?",
+                "select ub.reading_status_code from shelf_books sb join user_books ub on ub.id ="
+                    + " sb.user_book_id where ub.id = ?",
                 String.class,
                 book))
         .containsExactlyInAnyOrder(status.name(), status.name());
@@ -246,7 +269,7 @@ class ShelfBookManagementIntegrationTest {
             operation -> Stream.of(Arguments.of(operation, true), Arguments.of(operation, false)));
   }
 
-  /** DB에서 읽은 두 모델의 값을 목록 응답으로 전달한다. 정렬 검증은 별도 Adapter 실습에 남긴다. */
+  /** DB에서 읽은 두 모델의 값을 목록 응답으로 전달한다. 정렬은 Adapter 통합 테스트에서 검증한다. */
   @Test
   void 서재별_목록은_도서와_연결의_필드와_시각을_반환한다() throws Exception {
     UUID user = createUser();
@@ -337,9 +360,9 @@ class ShelfBookManagementIntegrationTest {
     UUID id = UUID.randomUUID();
     jdbcTemplate.update(
         """
-        insert into user_books (id, user_id, isbn, title, author, publisher, cover_image_url, reading_status_code, created_at, updated_at)
-        values (?, ?, ?, '제목', '저자', '출판사', 'cover', ?, ?, ?)
-        """,
+insert into user_books (id, user_id, isbn, title, author, publisher, cover_image_url, reading_status_code, created_at, updated_at)
+values (?, ?, ?, '제목', '저자', '출판사', 'cover', ?, ?, ?)
+""",
         id,
         userId,
         "978" + id.toString().replace("-", "").substring(0, 10),
@@ -352,7 +375,8 @@ class ShelfBookManagementIntegrationTest {
   private UUID insertLink(UUID shelfId, UUID bookId, String memo) {
     UUID id = UUID.randomUUID();
     jdbcTemplate.update(
-        "insert into shelf_books (id, shelf_id, user_book_id, memo, created_at, updated_at) values (?, ?, ?, ?, ?, ?)",
+        "insert into shelf_books (id, shelf_id, user_book_id, memo, created_at, updated_at) values"
+            + " (?, ?, ?, ?, ?, ?)",
         id,
         shelfId,
         bookId,

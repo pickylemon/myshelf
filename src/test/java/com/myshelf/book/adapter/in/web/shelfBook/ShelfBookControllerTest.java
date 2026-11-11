@@ -45,7 +45,21 @@ class ShelfBookControllerTest {
   @MockitoBean JwtDecoder jwtDecoder;
   @MockitoBean AuthenticationManager authenticationManager;
 
-  // TODO(직접 작성): 메모가 2,001자이면 400이며 updateUseCase를 호출하지 않는다.
+  @Test
+  void 메모가_최대_길이를_초과하면_400이며_변경하지_않는다() throws Exception {
+    UUID userId = UUID.randomUUID();
+    mockMvc
+        .perform(
+            patch("/shelf-books/{id}", UUID.randomUUID())
+                .with(jwt().jwt(token -> token.subject(userId.toString())))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(
+                    objectMapper.writeValueAsString(
+                        new ShelfBookMemoUpdateRequest("메".repeat(2001)))))
+        .andExpect(status().isBadRequest());
+
+    verifyNoInteractions(updateUseCase);
+  }
 
   /** null·빈 문자열·최대 길이 메모를 JSON으로 받아 인증 사용자와 함께 전달한다. */
   @ParameterizedTest

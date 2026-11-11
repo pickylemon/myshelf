@@ -61,7 +61,19 @@ class BookServiceTest {
     shelfId = UUID.randomUUID();
   }
 
-  // TODO(직접 작성): 삭제 목록에 타인·미존재 ID가 섞이면 예외를 던지고 삭제 Port를 호출하지 않는다.
+  @Test
+  void 일부_삭제_대상을_찾지_못하면_삭제_Port를_호출하지_않는다() {
+    List<UUID> ids = List.of(UUID.randomUUID(), UUID.randomUUID());
+    when(repository.findAllShelfBookByIdAndUserId(ids, userId))
+        .thenReturn(List.of(new ShelfBook(ids.getFirst(), shelfId, UUID.randomUUID())));
+
+    assertThatThrownBy(() -> service.delete(new ShelfBookDeleteCommand(userId, ids)))
+        .isInstanceOfSatisfying(
+            BookException.class,
+            ex -> assertThat(ex.getErrorCode()).isEqualTo(BookErrorCode.SHELF_BOOK_NOT_FOUND));
+
+    verify(repository, never()).deleteShelfBooks(any());
+  }
 
   /** 캐시 부재 시 외부 메타데이터를 저장하고 확보한 값으로 Writer를 호출한다. */
   @Test

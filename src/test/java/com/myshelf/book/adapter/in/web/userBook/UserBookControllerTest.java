@@ -1,6 +1,7 @@
 package com.myshelf.book.adapter.in.web.userBook;
 
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -16,6 +17,7 @@ import com.myshelf.global.config.SecurityConfig;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -35,7 +37,22 @@ class UserBookControllerTest {
   @MockitoBean JwtDecoder jwtDecoder;
   @MockitoBean AuthenticationManager authenticationManager;
 
-  // TODO(직접 작성): 정상 상태 요청의 JWT 사용자·도서 ID·상태 전달과 204 응답을 검증한다.
+  @ParameterizedTest
+  @EnumSource(ReadingStatus.class)
+  void 독서_상태를_Command로_전달하고_204를_반환한다(ReadingStatus readingStatus) throws Exception {
+    UUID userId = UUID.randomUUID();
+    UUID bookId = UUID.randomUUID();
+    mockMvc
+        .perform(
+            patch("/user-books/{id}", bookId)
+                .with(jwt().jwt(token -> token.subject(userId.toString())))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"readingStatus\":\"" + readingStatus.name() + "\"}"))
+        .andExpect(status().isNoContent())
+        .andExpect(content().string(""));
+
+    verify(useCase).update(new UserBookUpdateReadingStatusCommand(userId, bookId, readingStatus));
+  }
 
   /** 상태 누락·null·알 수 없는 enum은 UseCase 호출 전에 거부한다. */
   @ParameterizedTest

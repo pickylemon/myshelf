@@ -44,7 +44,36 @@ class BookPersistenceAdapterIntegrationTest {
 
   private final List<UUID> userIds = new ArrayList<>();
 
-  // TODO(직접 작성): 위치 지정 우선·position 오름차순·수정 시각/ID 내림차순 정렬을 검증한다.
+  @Test
+  void 목록은_위치_지정_우선으로_위치_수정시각_ID_순서로_정렬한다() {
+    UUID owner = createUser();
+    UUID shelf = insertShelf(owner, "정렬 서재");
+    Instant older = Instant.parse("2026-10-01T00:00:00Z");
+    Instant newer = older.plusSeconds(60);
+    Integer[] positions = {null, 2, null, 1, null, 2};
+    Instant[] updatedTimes = {older, newer, older, older, newer, older};
+    List<UUID> ids = new ArrayList<>();
+
+    // 모든 정렬 조건의 우선순위를 구분할 수 있도록 삽입 순서와 기대 순서를 다르게 둔다.
+    for (int index = 0; index < positions.length; index++) {
+      UUID id = new UUID(0, index + 1);
+      ids.add(id);
+      UUID book = insertUserBook(owner, "978123456789" + index);
+      jdbcTemplate.update(
+          "insert into shelf_books (id, shelf_id, user_book_id, position, created_at, updated_at)"
+              + " values (?, ?, ?, ?, ?, ?)",
+          id,
+          shelf,
+          book,
+          positions[index],
+          Timestamp.from(older),
+          Timestamp.from(updatedTimes[index]));
+    }
+
+    assertThat(adapter.findAllShelfBooksByShelfIdAndUserId(shelf, owner))
+        .extracting(ShelfBookItem::shelfBookId)
+        .containsExactly(ids.get(3), ids.get(1), ids.get(5), ids.get(4), ids.get(2), ids.get(0));
+  }
 
   /** 트랜잭션 내 메모 변경이 commit되고 연결 ID·생성 시각은 유지된다. */
   @ParameterizedTest
@@ -139,7 +168,8 @@ class BookPersistenceAdapterIntegrationTest {
     UUID shelf = insertShelf(owner, "목록 서재");
     UUID book = insertUserBook(owner, "9781234567890");
     jdbcTemplate.update(
-        "update user_books set author = '저자', publisher = '출판사', cover_image_url = 'cover' where id = ?",
+        "update user_books set author = '저자', publisher = '출판사', cover_image_url = 'cover' where id"
+            + " = ?",
         book);
     ShelfBook saved =
         adapter.createShelfBook(new ShelfBook(UUID.randomUUID(), shelf, book, 3, "메모", null, null));

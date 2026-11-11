@@ -1,6 +1,7 @@
 package com.myshelf.book;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
@@ -28,6 +29,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.data.redis.autoconfigure.DataRedisProperties;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -83,10 +85,58 @@ class ShelfBookAddIntegrationTest {
     }
   }
 
-  // TODO(직접 작성): 한 요청에서 앞 도서는 저장 가능하고 뒤 도서는 DB 제약 위반이 나도록 준비한다.
-  // HTTP 성공이 아님을 확인하고, 앞 도서 생성·기존 도서의 상태 변경·ShelfBook 연결까지
-  // 모두 롤백됐는지 JDBC로 검증한다. 테스트 메서드에 @Transactional을 붙이지 않는다.
-  // 재사용 가능한 Redis 메타데이터가 남는 것은 PostgreSQL 롤백 실패가 아니다.
+  @Test
+  void 다건_등록_중_DB_저장이_실패하면_생성과_상태변경과_연결을_모두_롤백한다() {
+    UUID userId = createUser();
+    UUID targetShelf = insertShelf(userId, "등록 대상");
+    UUID oldShelf = insertShelf(userId, "기존 서재");
+    String existingIsbn = newIsbn();
+    UUID existingBook = insertUserBook(userId, existingIsbn, "기존 제목", ReadingStatus.READING);
+    UUID oldLink = insertShelfBook(oldShelf, existingBook, "보존할 메모");
+    Map<String, Object> bookBefore =
+        jdbcTemplate.queryForMap("select * from user_books where id = ?", existingBook);
+    Map<String, Object> linkBefore =
+        jdbcTemplate.queryForMap("select * from shelf_books where id = ?", oldLink);
+    BookSearchMeta validBook = cacheBook();
+    String invalidIsbn = newIsbn();
+    BookSearchMeta invalidBook =
+        new BookSearchMeta(invalidIsbn, "제".repeat(256), "저자", "출판사", null, null);
+    metadataKeys.add("myshelf:book-metadata" + invalidIsbn);
+    metadataCache.save(invalidBook);
+    List<BookInput> books =
+        List.of(
+            new BookInput(validBook.isbn(), ReadingStatus.READ),
+            new BookInput(existingIsbn, ReadingStatus.READ),
+            new BookInput(invalidIsbn, ReadingStatus.READ));
+
+    // title VARCHAR(255) 위반은 현재 HTTP 예외 처리 대상이 아니므로 MockMvc까지 전파된다.
+    // 실제 Writer 트랜잭션이 종료된 뒤 별도 JDBC 조회로 롤백 결과를 확인한다.
+    assertThatThrownBy(
+            () ->
+                mockMvc.perform(
+                    post("/shelves/{shelfId}/books", targetShelf)
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + tokenIssuer.issue(userId))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(Map.of("books", books)))))
+        .hasCauseInstanceOf(DataIntegrityViolationException.class);
+
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from user_books where user_id = ? and isbn in (?, ?)",
+                Long.class,
+                userId,
+                validBook.isbn(),
+                invalidIsbn))
+        .isZero();
+    assertThat(
+            jdbcTemplate.queryForObject(
+                "select count(*) from shelf_books where shelf_id = ?", Long.class, targetShelf))
+        .isZero();
+    assertThat(jdbcTemplate.queryForMap("select * from user_books where id = ?", existingBook))
+        .isEqualTo(bookBefore);
+    assertThat(jdbcTemplate.queryForMap("select * from shelf_books where id = ?", oldLink))
+        .isEqualTo(linkBefore);
+  }
 
   @Test
   void 실제_JWT의_사용자에게_여러_도서를_등록하고_연결_ID를_응답한다() throws Exception {
@@ -297,7 +347,8 @@ class ShelfBookAddIntegrationTest {
   private UUID insertShelfBook(UUID shelfId, UUID bookId, String memo) {
     UUID id = UUID.randomUUID();
     jdbcTemplate.update(
-        "insert into shelf_books (id, shelf_id, user_book_id, position, memo) values (?, ?, ?, null, ?)",
+        "insert into shelf_books (id, shelf_id, user_book_id, position, memo) values (?, ?, ?,"
+            + " null, ?)",
         id,
         shelfId,
         bookId,
