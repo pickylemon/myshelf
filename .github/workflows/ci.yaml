@@ -85,6 +85,9 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -93,6 +96,7 @@ jobs:
         with:
           context: .
           push: false
+          platforms: linux/amd64,linux/arm64
           tags: myshelf:ci
 
   publish-image:
@@ -109,6 +113,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      # 추가: ARM64 빌드를 위한 에뮬레이션 환경
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -124,4 +132,5 @@ jobs:
         with:
           context: .
           push: true
+          platforms: linux/amd64,linux/arm64
           tags: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
