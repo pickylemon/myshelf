@@ -1,4 +1,6 @@
 services:
   app:
+    image: ${MYSHELF_IMAGE:?Set MYSHELF_IMAGE to a GHCR image reference}
+    pull_policy: always
     environment:
       SPRING_PROFILES_ACTIVE: prod, redis

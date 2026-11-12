@@ -91,7 +91,7 @@ com.myshelf
 
 ## 4. 로컬 실행 환경
 
-MyShelf는 Docker Compose로 Spring Boot, PostgreSQL, Redis 서비스를 구성합니다. 로컬 앱 설정은 `compose.local.yaml`을 함께 사용합니다.
+MyShelf는 Docker Compose로 Spring Boot, PostgreSQL, Redis 서비스를 구성합니다. 로컬에서는 `compose.yaml`과 자동 병합되는 `compose.override.yaml`을 사용하며, 앱 프로필은 `local,redis`입니다.
 
 ### 사전 요구사항
 
@@ -123,11 +123,11 @@ IntelliJ에서는 `.env`가 기본적으로 자동 적용되지 않으므로 환
 
 프로젝트 루트에서 다음 명령을 실행합니다.
 
-현재 Compose의 app 서비스에는 `NATIONAL_LIBRARY_API_KEY` 전달 설정이 없습니다. `.env`에 값을 작성하는 것만으로 컨테이너에 전달되지는 않으므로, app 기동 전 해당 환경변수 전달 설정이 필요합니다. 아래는 로컬 설정을 병합하는 실행 형식입니다.
+`compose.yaml`의 `environment` 선언을 통해 JWT 서명키·DB 비밀번호·국립중앙도서관 API 키를 컨테이너에 전달합니다. 로컬 빌드·프로필·DB 초기화 SQL·DB/Redis 호스트 포트는 `compose.override.yaml`에 정의합니다. 아래 명령은 별도 `COMPOSE_FILE` 설정이 없는 경우를 기준으로 합니다.
 
 ```bash
 # 이미지 빌드 및 컨테이너 실행
-docker compose -f compose.yaml -f compose.local.yaml up -d --build
+docker compose up -d --build
 
 # 컨테이너 상태 확인
 docker compose ps
@@ -138,6 +138,8 @@ docker compose logs app
 # 컨테이너 종료 및 제거
 docker compose down
 ```
+
+운영에서는 로컬 Override 파일을 제외하도록 `-f compose.yaml -f compose.prod.yaml`을 명시합니다. 운영 이미지와 환경변수 구성은 [Compose 환경 분리 ADR](docs/decisions/013-compose-environment-separation.md#5-실행-및-운영-규칙)을 참고합니다.
 
 실행 후 접근 주소:
 
