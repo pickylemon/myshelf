@@ -18,15 +18,16 @@
 - Shelf 생성·목록 조회·상세 조회·수정·삭제 (Feature 4)
 - 인증된 사용자 UUID 기반 소유권 검증, 사용자별 Shelf 이름 중복 방지
 - 요청 Validation 및 ProblemDetail 오류 응답
-- 외부 도서 통합 검색·더 보기 및 사용자별 등록 서재 정보 조회 (Feature 5 진행 중)
+- 외부 도서 통합 검색·더 보기 및 사용자별 등록 서재 정보 조회 (Feature 5)
 - Redis 검색 세션 저장·만료와 단일 서버의 동일 세션 중복 요청 차단
 - UserBook 등록·재사용, ShelfBook 연결 및 ISBN별 메타데이터 캐시
-- 서재별 도서 목록 조회·메모 수정, 독서 상태 변경 및 ShelfBook 다건 삭제 (신규 관리·조회 테스트는 후속 작업)
+- 서재별 도서 목록 조회·메모 수정, 독서 상태 변경 및 ShelfBook 다건 삭제
+
+Feature 5는 구현·테스트를 완료하고 PR 리뷰 대기 중입니다. 로컬 검증 범위와 개발자가 확인한 Draft PR CI 통과 결과는 [Feature 5 검증 기록](docs/planning/feature-5-book-management.md#6-구현-단계-및-완료-기준)에 정리합니다.
 
 **이후 범위**
 
-- Feature 5 남은 범위: 관리·조회 기능 테스트, 연관 삭제·회귀 검증 및 문서 정리
-- 이후 우선 작업: CD·배포 및 포트폴리오 1차 정리
+- Feature 5 PR 리뷰·병합 후 우선 작업: CD·배포 및 포트폴리오 1차 정리
 - Feature 6: 전체 도서·상세 조회, Shelf 내 순서 변경 및 검색 응답 보완
 - Feature 7: 문장 수집·필사
 - 후속 검토: 독서 통계, 일반 조회 캐싱, Kafka 기반 비동기 처리 및 AI Agent

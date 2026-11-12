@@ -28,7 +28,7 @@ ShelfBookAddController → ShelfBookAddUseCase → BookService
 
 클라이언트는 ISBN·독서 상태만 전달한다. 제목·저자 등을 다시 받아 저장하지 않고 서버가 확보한 메타데이터를 사용한다. 기존 UserBook은 메타데이터 조회·갱신 없이 재사용한다.
 
-외부 API와 Redis 대기 동안 DB 쓰기 트랜잭션을 유지하지 않도록 Writer를 별도 Spring Bean으로 분리했다. `BookService`가 Writer 프록시를 호출하면 트랜잭션이 시작된다. 등록 중 런타임 예외가 밖으로 전달되면 앞선 생성·상태 변경·연결도 롤백 대상이다. 실제 롤백 검증은 아직 테스트 TODO로 남아 있다.
+외부 API와 Redis 대기 동안 DB 쓰기 트랜잭션을 유지하지 않도록 Writer를 별도 Spring Bean으로 분리했다. `BookService`가 Writer 프록시를 호출하면 트랜잭션이 시작된다. 등록 중 런타임 예외가 밖으로 전달되면 앞선 생성·상태 변경·연결도 롤백 대상이다. `ShelfBookAddIntegrationTest`는 앞 항목을 저장·변경한 뒤 뒤 항목에서 DB 제약 위반을 발생시키고, 트랜잭션 종료 후 JDBC로 전체 롤백을 확인한다. 테스트 메서드 자체에는 `@Transactional`을 붙이지 않는다.
 
 Redis 저장과 PostgreSQL 쓰기는 하나의 분산 트랜잭션이 아니다. 등록이 롤백되어도 공용 메타데이터 캐시가 남는 것은 허용한다. 캐시의 수명과 장애 정책은 [검색 설계](book-search.md#메타데이터-캐시와-검색-세션)를 참고한다.
 
@@ -67,4 +67,4 @@ Controller는 UseCase의 `List<ShelfBookItem>`을 그대로 반환한다. 웹 �
 
 ## 6. 검증 상태
 
-등록 Service·Writer 단위 테스트, PostgreSQL Adapter·JWT 등록 통합 테스트, Redis 캐시 테스트가 있다. 관리·목록 API와 등록 전체 롤백 등은 보완이 필요하다. 코드 존재와 최신 전체 테스트·CI 통과를 구분하며, 종료 기준은 Feature 5에서 관리한다.
+등록 Service·Writer 단위 테스트, 웹 입력·보안 테스트, PostgreSQL Adapter·실제 JWT API 통합 테스트와 Redis 캐시 테스트를 갖췄다. 관리·목록 API의 입력·소유권·기본 정렬, 다건 등록 전체 롤백, 마지막 연결 삭제와 Shelf CASCADE 이후 UserBook·다른 연결 보존을 검증한다. 실행 결과와 종료 기준은 [Feature 5 검증 기록](../planning/feature-5-book-management.md#6-구현-단계-및-완료-기준)에서 관리한다. 실제 외부 API의 지연·호출 제한과 운영 배포 검증은 이 자동화 테스트 범위에 포함하지 않는다.

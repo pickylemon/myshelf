@@ -13,10 +13,10 @@
 | `NationalLibraryBookAdapterTest` | HTTP 요청 구성·응답 변환·오류 분류 | MockRestServiceServer와 직접 실행 Executor |
 | `RedisBookSearchStateStoreTest` | 연결 장애와 예외 변환 범위 | RedisTemplate |
 | `RedisBookSearchStateStoreIntegrationTest` | 실제 Redis 직렬화·저장·삭제·만료 | PostgreSQL·외부 API는 로딩하지 않음 |
-| `BookPersistenceAdapterIntegrationTest` | 실제 PostgreSQL JOIN·사용자 격리 | 없음 |
+| `BookPersistenceAdapterIntegrationTest` | 실제 PostgreSQL JOIN·사용자 격리·목록 정렬·메모 변경·DB 제약 | 없음 |
 | `BookSearchIntegrationTest` | JWT → 검색 진행 → Redis·PostgreSQL → HTTP 응답 | 외부 검색 Port만 Mock |
 
-등록·캐시에는 `BookServiceTest`, `BookRegistrationWriterTest`, `ShelfBookAddControllerTest`, `ShelfBookAddIntegrationTest`, `RedisBookMetadataCacheTest`, `RedisBookMetadataCacheIntegrationTest`도 있다. 이 파일들은 일부 시나리오가 TODO이며, 메모·독서 상태 변경·다건 삭제·Shelf별 목록 API의 검증 완료를 뜻하지 않는다. 현재 등록 구조는 [도서 관리 문서](../../architecture/book-management.md)를 참고한다.
+등록·캐시에는 `BookServiceTest`, `BookRegistrationWriterTest`, `ShelfBookAddControllerTest`, `ShelfBookAddIntegrationTest`, `RedisBookMetadataCacheTest`, `RedisBookMetadataCacheIntegrationTest`도 있다. 관리 기능은 `ShelfBookControllerTest`, `UserBookControllerTest`, `ShelfControllerTest`, `ShelfBookManagementIntegrationTest`에서 메모·독서 상태 변경·다건 삭제·Shelf별 목록을 검증한다. 현재 구조와 검증 범위는 [도서 관리 문서](../../architecture/book-management.md#6-검증-상태)를 참고한다.
 
 ## 2. 외부 HTTP는 서버를 호출하지 않고 검증
 
@@ -83,9 +83,9 @@ API 통합 테스트는 실제 JWT를 발급하고 검색 → 버퍼 반환 → 
 
 PostgreSQL·Redis를 실행하고 Gradle에 `DB_PASSWORD`를 전달해야 한다. 외부 API 키는 test 프로필의 가짜 값을 사용하며 실제 외부 API에 보내지 않는다. Redis 통합 테스트가 `test,redis` 프로필을 직접 활성화한다.
 
-현재 `.github/workflows/ci.yaml`의 `build-and-test`에는 PostgreSQL·Redis 서비스가 모두 있다. 로컬에서 Redis가 실행 중이어도 CI에는 자동 제공되지 않으므로 별도로 추가한 구성이다. 테스트 코드가 존재한다는 사실과 최신 전체 빌드·CI 통과는 구분한다.
+현재 `.github/workflows/ci.yaml`의 `build-and-test`에는 PostgreSQL·Redis 서비스가 모두 있다. 로컬에서 Redis가 실행 중이어도 CI에는 자동 제공되지 않으므로 별도로 추가한 구성이다. 최신 로컬 실행 범위와 개발자가 확인한 Draft PR CI 통과 결과는 [Feature 5 검증 기록](../../planning/feature-5-book-management.md#6-구현-단계-및-완료-기준)에서 관리한다.
 
-Feature 5 종료 전에는 신규 관리·목록 API의 입력·소유권·정렬·빈 결과, 등록 중 실패 시 전체 롤백, 연결 삭제·Shelf CASCADE 이후 UserBook 보존을 검증해야 한다. 실제로 검증하지 않은 항목을 완료로 기록하지 않는다.
+관리·목록 API의 입력·소유권·정렬·빈 결과, 등록 중 실패 시 전체 롤백, 연결 삭제·Shelf CASCADE 이후 UserBook 보존 테스트를 보완했다. 테스트 코드의 존재와 실제 실행 결과는 구분하며, 운영 배포 검증까지 완료한 것으로 해석하지 않는다.
 
 아직 다루지 않은 범위는 실제 외부 API의 지연·호출 제한, Executor 포화, 여러 서버의 동일 세션 처리다. 현재 테스트로 병렬 성능 향상이나 분산 환경의 원자성까지 보장했다고 해석하지 않는다.
 

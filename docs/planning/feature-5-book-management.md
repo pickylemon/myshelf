@@ -1,6 +1,6 @@
 # Feature 5 — 도서 검색·등록 및 Shelf 연동
 
-> 상태: **기능 구현 완료·검증 진행 전** — 검색·등록·서재별 메모 수정·독서 상태 변경·ShelfBook 다건 삭제·Shelf별 목록 조회 구현. 남은 테스트·문서 및 최신 전체 빌드·CI 확인 필요
+> 상태: **구현·테스트 완료, PR 리뷰 대기** — 검색·등록·서재별 메모 수정·독서 상태 변경·ShelfBook 다건 삭제·Shelf별 목록 조회 검증 완료. Draft PR의 CI 통과는 개발자 확인 결과 기준이며, main 병합·운영 배포 완료를 뜻하지 않음
 >
 > 범위: 외부 도서 탐색, UserBook 등록·독서 상태 변경, ShelfBook 연결·메모·삭제, Shelf별 도서 목록 조회
 >
@@ -33,7 +33,7 @@ Feature 5에서는 사용자가 **자신의 Shelf에 도서를 추가하고, 여
 | ShelfBook 메모 변경 | 서재별 독립 메모, 최대 2,000자 |
 | 독서 상태 변경 | `WANT_TO_READ`, `READING`, `READ` 관리 |
 
-전체 도서 목록·등록 도서 상세 조회·사용자 지정 순서 변경은 [Feature 6](./feature-6-book-browsing-and-ordering.md)으로 분리한다. 문장 수집·필사는 [Feature 7](./feature-7-transcription.md)에서 다룬다. Feature 5의 테스트·최종 검증을 마친 뒤 CD·배포와 포트폴리오 1차 정리를 진행한다.
+전체 도서 목록·등록 도서 상세 조회·사용자 지정 순서 변경은 [Feature 6](./feature-6-book-browsing-and-ordering.md)으로 분리한다. 문장 수집·필사는 [Feature 7](./feature-7-transcription.md)에서 다룬다. Feature 5의 PR 리뷰·병합 이후 CD·배포와 포트폴리오 1차 정리를 진행한다.
 
 외부 도서 검색은 ISBN이 있는 도서를 대상으로 하며, 전자책 본문이나 원문 콘텐츠는 제공하지 않는다.
 
@@ -73,7 +73,7 @@ Feature 5에서는 사용자가 **자신의 Shelf에 도서를 추가하고, 여
 - 메모는 ShelfBook에 속하며 서재마다 독립적이다. 새 연결의 메모는 null이고, 연결 삭제 시 해당 메모도 삭제된다.
 - 메모는 null을 허용하며 요청 DTO에 `@Size(max = 2_000)`, V7에 `char_length(memo) <= 2000` CHECK 제약이 있다. Java 검증은 UTF-16 길이, DB 검증은 문자 수 기준이므로 일부 이모지의 계산은 다를 수 있다.
 - V6에 ShelfBook 생성 시각, V7에 수정 시각을 정의한다. 목록은 위치 지정 도서 우선 → position 오름차순 → 수정 시각 내림차순 → ID 내림차순으로 반환한다. 메모 수정으로 수정 시각이 바뀌면 위치 미지정 도서의 순서도 바뀐다. 사용자 지정 순서 변경 API는 Feature 6 범위다.
-- Shelf 삭제 시 V6의 `ON DELETE CASCADE`로 ShelfBook을 제거하고 UserBook은 보존한다. 실제 연관 데이터가 있는 삭제 테스트는 남아 있다.
+- Shelf 삭제 시 V6의 `ON DELETE CASCADE`로 ShelfBook을 제거하고 UserBook은 보존한다. 연관 데이터가 있는 삭제와 다른 연결·메모 보존은 `ShelfBookManagementIntegrationTest`에서 검증한다.
 
 ### 3.4. 사용자별 접근 통제
 
@@ -166,9 +166,15 @@ Feature 5의 구현 흐름이다. 현재 외부 검색 응답의 범위는 4.1�
 
 ## 6. 구현 단계 및 완료 기준
 
-### 6.1. 외부 검색 — 구현 및 테스트 코드 작성 범위
+2026-11-12 검증 기준은 다음과 같다.
 
-아래 체크는 구현 또는 테스트 코드의 존재를 뜻한다. 이번 문서 점검에서 테스트를 실행한 것은 아니며, 전체 테스트·빌드·CI 성공을 의미하지 않는다.
+- 로컬: `build -x test --no-daemon`으로 컴파일·패키징·Spotless 검사 통과. 도서 Service 단위·웹 계층·외부 Adapter·Redis 메타데이터 캐시 단위 테스트와 Shelf Controller 테스트도 별도 실행해 통과했다.
+- CI: 최신 Draft PR의 CI 통과는 개발자가 확인했다. `.github/workflows/ci.yaml`은 PostgreSQL·Redis를 준비한 전체 `clean build`와 PR의 Docker 이미지 빌드를 검증한다. 이번 점검에서 로컬 DB·Redis 통합 테스트를 다시 실행한 것은 아니다.
+- 외부 API: 자동화 테스트는 외부 응답을 Mock으로 대체한다. 실제 제공자의 지연·호출 제한·검색 품질과 운영 배포 후 동작까지 검증했다는 뜻은 아니다.
+
+### 6.1. 외부 검색 — 구현 및 테스트 범위
+
+아래 항목의 테스트 코드를 확인했으며, 실행 결과의 근거는 위 검증 기록을 따른다.
 
 - [x] 최초 검색·더 보기 응답에 `searchId`, 도서 메타데이터, 등록 Shelf 목록 포함
 - [x] 프로필에 따른 Redis·InMemory 검색 상태 저장소 선택
@@ -181,11 +187,12 @@ Feature 5의 구현 흐름이다. 현재 외부 검색 응답의 범위는 4.1�
 
 테스트 계층과 검증 방법은 [도서 검색 테스트 전략](../learning/testing/book-search-testing-strategy.md#1-무엇을-실제로-연결할-것인가)을 참고한다. 외부 API는 Mock으로 대체하며, Redis 만료는 별도 저장소 통합 테스트에서 다룬다.
 
-남은 검증과 실행 환경:
+실행 환경:
 
-- [ ] PostgreSQL·Redis를 준비하고 최신 전체 테스트·빌드 결과 확인
-- [x] CI에 Redis 서비스 추가 및 GitHub Actions 성공 확인 (개발자 실행 결과 기준)
-- [ ] 실제 외부 API의 검색 품질·지연·호출 제한 및 빈 결과의 사용자 경험 확인
+- [x] CI의 PostgreSQL·Redis 환경에서 전체 테스트·빌드 통과 (개발자 확인 결과 기준)
+- [x] PR의 Docker 이미지 빌드 검증 통과 (개발자 확인 결과 기준)
+
+실제 외부 API의 검색 품질·지연·호출 제한 및 빈 결과의 사용자 경험은 후속 실습에서 확인한다. 아래 병합 정책·조회 크기 실험과 함께 관리하며 이번 PR의 완료 조건에는 포함하지 않는다.
 
 실행 조건과 미검증 범위는 [테스트 전략의 실행 조건](../learning/testing/book-search-testing-strategy.md#6-실행-조건과-남은-검증)에 정리한다.
 
@@ -210,9 +217,9 @@ Feature 5의 구현 흐름이다. 현재 외부 검색 응답의 범위는 4.1�
 
 측정 차이가 작다면 작은 페이지 크기를 우선 후보로 검토하되, 지금 값을 확정하지 않는다. 변경 시 요청의 `page_size`, `calculateNextPage()`와 관련 테스트를 함께 확인한다. 현재는 즉시 구조를 재설계할 결함이 확인된 상태가 아니라, 측정 후 조정할 개선 과제로 남긴다. 이 실험을 도서 등록·Shelf 연결 구현의 선행 조건으로 두지는 않는다.
 
-### 6.2. 도서 등록·관리 — 구현과 남은 검증
+### 6.2. 도서 등록·관리 — 구현과 검증
 
-아래 구현 체크는 코드의 존재를 뜻하며 테스트 통과를 의미하지 않는다.
+구현과 회귀 테스트를 완료했다. 전체 실행 결과는 6절의 검증 기록을 따른다.
 
 - [x] UserBook 생성·재사용, 필수 독서 상태 적용 및 ShelfBook 연결
 - [x] 현재 Shelf의 중복 등록 제외, 신규 연결만 응답
@@ -222,28 +229,28 @@ Feature 5의 구현 흐름이다. 현재 외부 검색 응답의 범위는 4.1�
 - [x] UserBook 독서 상태 변경 및 ShelfBook 다건 삭제
 - [x] ShelfBookEntity에 nullable `position` 매핑. 신규 연결은 null
 - [x] Shelf별 도서 목록 API·소유권 확인·JOIN FETCH·기본 정렬 구현
-- [ ] Shelf별 도서 목록의 필드·정렬·빈 서재·404 테스트
-- [ ] 메모 수정·독서 상태 변경·다건 삭제의 정상·소유권·Validation 테스트
-- [ ] 다건 등록 중 실패 시 생성·상태 변경·연결 전체 롤백 검증
-- [ ] 다른 Shelf 연결·메모 보존과 마지막 연결 삭제 후 UserBook 보존 검증
-- [ ] 도서가 연결된 Shelf 삭제 시 CASCADE와 UserBook 보존 검증
+- [x] Shelf별 도서 목록의 필드·정렬·빈 서재·404 테스트
+- [x] 메모 수정·독서 상태 변경·다건 삭제의 정상·소유권·Validation 테스트
+- [x] 다건 등록 중 실패 시 생성·상태 변경·연결 전체 롤백 검증
+- [x] 다른 Shelf 연결·메모 보존과 마지막 연결 삭제 후 UserBook 보존 검증
+- [x] 도서가 연결된 Shelf 삭제 시 CASCADE와 UserBook 보존 검증
 
-등록·캐시 테스트는 일부 작성되어 있으나 TODO가 남아 있다. 상세 조회·전체 도서 목록·사용자 지정 순서 변경·외부 검색 응답 보완은 [Feature 6](./feature-6-book-browsing-and-ordering.md)에서 진행한다.
+등록·관리 API의 전체 흐름은 `ShelfBookAddIntegrationTest`와 `ShelfBookManagementIntegrationTest`, 기본 정렬은 `BookPersistenceAdapterIntegrationTest`에서 검증한다. 상세 조회·전체 도서 목록·사용자 지정 순서 변경·외부 검색 응답 보완은 [Feature 6](./feature-6-book-browsing-and-ordering.md)에서 진행한다.
 
 ### 6.3. Feature 5 종료 기준
 
-- [ ] 사용자 A는 사용자 B의 Shelf·UserBook·검색 세션에 접근하거나 이를 변경할 수 없다.
-- [ ] 최초 검색·더 보기·세션 만료·외부 API 장애를 테스트로 검증한다.
-- [ ] 같은 사용자의 동일 ISBN은 UserBook 하나로 유지된다.
-- [ ] 도서를 여러 Shelf에 배치할 수 있고, 독서 상태는 UserBook 기준으로 일관된다.
-- [ ] Shelf별 목록에서 등록 결과·독서 상태·서재별 메모를 확인할 수 있다.
-- [ ] ShelfBook 다건 삭제와 Shelf 삭제에서 UserBook·다른 연결의 보존을 검증한다.
-- [ ] 메모 길이·독서 상태·다건 입력과 소유권의 정상·예외 흐름을 검증한다.
-- [ ] 전체 테스트·빌드·CI를 통과하고 API·아키텍처 문서를 현재 구현과 일치시킨다.
+- [x] 사용자 A는 사용자 B의 Shelf·UserBook·검색 세션에 접근하거나 이를 변경할 수 없다.
+- [x] 최초 검색·더 보기·세션 만료·외부 API 장애를 테스트로 검증한다.
+- [x] 같은 사용자의 동일 ISBN은 UserBook 하나로 유지된다.
+- [x] 도서를 여러 Shelf에 배치할 수 있고, 독서 상태는 UserBook 기준으로 일관된다.
+- [x] Shelf별 목록에서 등록 결과·독서 상태·서재별 메모를 확인할 수 있다.
+- [x] ShelfBook 다건 삭제와 Shelf 삭제에서 UserBook·다른 연결의 보존을 검증한다.
+- [x] 메모 길이·독서 상태·다건 입력과 소유권의 정상·예외 흐름을 검증한다.
+- [x] 전체 테스트·빌드·CI를 통과하고 API·아키텍처 문서를 현재 구현과 일치시킨다.
 
 Feature 5 종료 후 CD·배포·배포 환경 수동 검증과 포트폴리오 1차 정리를 진행한다. Feature 6·7 구현을 배포의 선행 조건으로 두지 않는다.
 
-## 7. 구현 전 확정할 정책
+## 7. 후속 검토할 정책
 
 | 주제 | 결정할 사항 |
 |---|---|
@@ -269,4 +276,4 @@ Feature 5 종료 후 CD·배포·배포 환경 수동 검증과 포트폴리오 
 
 ---
 
-**다음 단계:** 등록·관리·목록 테스트의 빈 부분을 채우고 실제 구현 문서를 정리한다. 최신 전체 테스트·빌드·CI를 확인한 뒤 Feature 5를 종료하고 CD·배포와 포트폴리오 1차 정리를 진행한다.
+**다음 단계:** PR 리뷰·병합 후 CD·배포와 포트폴리오 1차 정리를 진행한다. 검색 품질·외부 API 지연 측정과 Feature 6·7은 후속 과제로 유지한다.
