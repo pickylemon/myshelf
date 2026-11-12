@@ -65,19 +65,19 @@ class ShelfUpdateDeleteIntegrationTest {
     UUID userId = createUser();
     Shelf shelf = createShelf(userId, "기존 이름", "기존 설명");
     Map<String, Object> before =
-        jdbcTemplate.queryForMap("select * from shelves where id = ?", shelf.getId());
+        jdbcTemplate.queryForMap("select * from shelves where id = ?", shelf.id());
 
     // when, then
     String response =
         mockMvc
             .perform(
-                put("/shelves/{shelfId}", shelf.getId())
+                put("/shelves/{shelfId}", shelf.id())
                     .header(HttpHeaders.AUTHORIZATION, bearerToken(userId))
                     .contentType(MediaType.APPLICATION_JSON)
                     .content(objectMapper.writeValueAsString(new UpdateRequestBody(name, "새 설명"))))
             .andExpect(status().isOk())
             .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_JSON))
-            .andExpect(jsonPath("$.id").value(shelf.getId().toString()))
+            .andExpect(jsonPath("$.id").value(shelf.id().toString()))
             .andExpect(jsonPath("$.name").value(name))
             .andExpect(jsonPath("$.description").value("새 설명"))
             .andExpect(jsonPath("$.userId").doesNotExist())
@@ -86,7 +86,7 @@ class ShelfUpdateDeleteIntegrationTest {
             .getContentAsString();
 
     Map<String, Object> stored =
-        jdbcTemplate.queryForMap("select * from shelves where id = ?", shelf.getId());
+        jdbcTemplate.queryForMap("select * from shelves where id = ?", shelf.id());
     assertThat(stored.get("user_id")).isEqualTo(userId);
     assertThat(stored.get("name")).isEqualTo(name);
     assertThat(stored.get("description")).isEqualTo("새 설명");
@@ -114,7 +114,7 @@ class ShelfUpdateDeleteIntegrationTest {
     // when, then
     mockMvc
         .perform(
-            put("/shelves/{shelfId}", target.getId())
+            put("/shelves/{shelfId}", target.id())
                 .header(HttpHeaders.AUTHORIZATION, bearerToken(userId))
                 .contentType(MediaType.APPLICATION_JSON)
                 .content(
@@ -141,7 +141,7 @@ class ShelfUpdateDeleteIntegrationTest {
         jdbcTemplate.queryForList(
             "select * from shelves where user_id in (?, ?)", requesterId, ownerId);
     MockHttpServletRequestBuilder builder =
-        request(HttpMethod.valueOf(method), "/shelves/{shelfId}", target.getId())
+        request(HttpMethod.valueOf(method), "/shelves/{shelfId}", target.id())
             .header(HttpHeaders.AUTHORIZATION, bearerToken(requesterId));
     if (method.equals("PUT")) {
       builder
@@ -170,21 +170,21 @@ class ShelfUpdateDeleteIntegrationTest {
     Shelf target = createShelf(userId, "삭제할 서재", "설명");
     Shelf remaining = createShelf(userId, "유지할 서재", "남겨둘 설명");
     Map<String, Object> remainingBefore =
-        jdbcTemplate.queryForMap("select * from shelves where id = ?", remaining.getId());
+        jdbcTemplate.queryForMap("select * from shelves where id = ?", remaining.id());
 
     // when, then
     mockMvc
         .perform(
-            delete("/shelves/{shelfId}", target.getId())
+            delete("/shelves/{shelfId}", target.id())
                 .header(HttpHeaders.AUTHORIZATION, bearerToken(userId)))
         .andExpect(status().isNoContent())
         .andExpect(content().string(""));
 
     assertThat(
             jdbcTemplate.queryForObject(
-                "select count(*) from shelves where id = ?", Long.class, target.getId()))
+                "select count(*) from shelves where id = ?", Long.class, target.id()))
         .isZero();
-    assertThat(jdbcTemplate.queryForMap("select * from shelves where id = ?", remaining.getId()))
+    assertThat(jdbcTemplate.queryForMap("select * from shelves where id = ?", remaining.id()))
         .isEqualTo(remainingBefore);
   }
 

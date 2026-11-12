@@ -58,7 +58,7 @@ class ShelfServiceTest {
         .thenAnswer(
             invocation -> {
               Shelf shelf = invocation.getArgument(0);
-              return new Shelf(savedId, shelf.getName(), shelf.getDescription(), shelf.getUserId());
+              return new Shelf(savedId, shelf.name(), shelf.description(), shelf.userId());
             });
 
     UUID result = shelfService.create(new ShelfCreateCommand(userId, name, description));
@@ -68,10 +68,10 @@ class ShelfServiceTest {
     order.verify(shelfRepositoryPort).existsByUserIdAndName(userId, name);
     order.verify(shelfRepositoryPort).save(captor.capture());
     Shelf shelf = captor.getValue();
-    assertThat(shelf.getId()).isNotNull();
-    assertThat(shelf.getUserId()).isEqualTo(userId);
-    assertThat(shelf.getName()).isEqualTo(name);
-    assertThat(shelf.getDescription()).isEqualTo(description);
+    assertThat(shelf.id()).isNotNull();
+    assertThat(shelf.userId()).isEqualTo(userId);
+    assertThat(shelf.name()).isEqualTo(name);
+    assertThat(shelf.description()).isEqualTo(description);
     assertThat(result).isEqualTo(savedId);
   }
 
@@ -166,7 +166,7 @@ class ShelfServiceTest {
 
     // when
     Shelf result =
-        shelfService.update(new ShelfUpdateCommand(shelfId, userId, newName, description));
+        shelfService.update(new ShelfUpdateCommand(userId, shelfId, newName, description));
 
     // then
     assertThat(result).isSameAs(updatedShelf);
@@ -177,10 +177,10 @@ class ShelfServiceTest {
     order.verify(shelfRepositoryPort).update(same(captor.getValue()));
 
     Shelf actual = captor.getValue();
-    assertThat(actual.getId()).isEqualTo(shelfId);
-    assertThat(actual.getUserId()).isEqualTo(userId);
-    assertThat(actual.getName()).isEqualTo(newName);
-    assertThat(actual.getDescription()).isEqualTo(description);
+    assertThat(actual.id()).isEqualTo(shelfId);
+    assertThat(actual.userId()).isEqualTo(userId);
+    assertThat(actual.name()).isEqualTo(newName);
+    assertThat(actual.description()).isEqualTo(description);
   }
 
   /** 자기 자신을 제외한 중복이 없으면 이름을 유지하고 설명만 변경할 수 있다. */
@@ -197,16 +197,16 @@ class ShelfServiceTest {
         .thenReturn(false);
     when(shelfRepositoryPort.update(any(Shelf.class))).thenReturn(Optional.of(updatedShelf));
 
-    Shelf result = shelfService.update(new ShelfUpdateCommand(shelfId, userId, name, "새 설명"));
+    Shelf result = shelfService.update(new ShelfUpdateCommand(userId, shelfId, name, "새 설명"));
 
     assertThat(result).isSameAs(updatedShelf);
     ArgumentCaptor<Shelf> captor = ArgumentCaptor.forClass(Shelf.class);
     verify(shelfRepositoryPort).update(captor.capture());
     Shelf actual = captor.getValue();
-    assertThat(actual.getId()).isEqualTo(shelfId);
-    assertThat(actual.getUserId()).isEqualTo(userId);
-    assertThat(actual.getName()).isEqualTo(name);
-    assertThat(actual.getDescription()).isEqualTo("새 설명");
+    assertThat(actual.id()).isEqualTo(shelfId);
+    assertThat(actual.userId()).isEqualTo(userId);
+    assertThat(actual.name()).isEqualTo(name);
+    assertThat(actual.description()).isEqualTo("새 설명");
   }
 
   /** 소유자 조건으로 찾지 못하면 중복 검사와 업데이트를 수행하지 않는다. HTTP 상태는 웹 테스트의 책임이다. */
@@ -223,7 +223,7 @@ class ShelfServiceTest {
     // when, then
     assertThatThrownBy(
             () ->
-                shelfService.update(new ShelfUpdateCommand(shelfId, userId, newName, description)))
+                shelfService.update(new ShelfUpdateCommand(userId, shelfId, newName, description)))
         .isInstanceOfSatisfying(
             ShelfException.class,
             ex -> assertThat(ex.getErrorCode()).isEqualTo(ShelfErrorCode.SHELF_NOT_FOUND));
@@ -251,7 +251,7 @@ class ShelfServiceTest {
     // when, then
     assertThatThrownBy(
             () ->
-                shelfService.update(new ShelfUpdateCommand(shelfId, userId, newName, description)))
+                shelfService.update(new ShelfUpdateCommand(userId, shelfId, newName, description)))
         .isInstanceOfSatisfying(
             ShelfException.class,
             ex -> assertThat(ex.getErrorCode()).isEqualTo(ShelfErrorCode.DUPLICATE_NAME));
@@ -259,9 +259,9 @@ class ShelfServiceTest {
     ArgumentCaptor<Shelf> captor = ArgumentCaptor.forClass(Shelf.class);
     verify(shelfRepositoryPort).existsByUserIdAndNameExcludingSelf(captor.capture());
     Shelf actual = captor.getValue();
-    assertThat(actual.getId()).isEqualTo(shelfId);
-    assertThat(actual.getUserId()).isEqualTo(userId);
-    assertThat(actual.getName()).isEqualTo(newName);
+    assertThat(actual.id()).isEqualTo(shelfId);
+    assertThat(actual.userId()).isEqualTo(userId);
+    assertThat(actual.name()).isEqualTo(newName);
     verify(shelfRepositoryPort, never()).update(any());
   }
 
@@ -285,7 +285,7 @@ class ShelfServiceTest {
     // when, then
     assertThatThrownBy(
             () ->
-                shelfService.update(new ShelfUpdateCommand(shelfId, userId, newName, description)))
+                shelfService.update(new ShelfUpdateCommand(userId, shelfId, newName, description)))
         .isInstanceOfSatisfying(
             ShelfException.class,
             ex -> assertThat(ex.getErrorCode()).isEqualTo(ShelfErrorCode.SHELF_NOT_FOUND));
@@ -307,7 +307,7 @@ class ShelfServiceTest {
     when(shelfRepositoryPort.update(any(Shelf.class))).thenThrow(duplicate);
 
     assertThatThrownBy(
-            () -> shelfService.update(new ShelfUpdateCommand(shelfId, userId, "서재2", null)))
+            () -> shelfService.update(new ShelfUpdateCommand(userId, shelfId, "서재2", null)))
         .isSameAs(duplicate);
 
     verify(shelfRepositoryPort).update(any(Shelf.class));

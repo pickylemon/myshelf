@@ -2,7 +2,7 @@
 
 > 상태: CI 구축 완료 / Branch Ruleset 적용 / GHCR 이미지 게시 및 실행 검증 완료 / CD 미구현
 > 작성일: 2026-10-21
-> 최종 수정일: 2026-10-22
+> 최종 수정일: 2026-11-06
 > 범위: GitHub Actions 기반 CI, Docker 이미지 빌드·게시 및 향후 CD 확장
 
 ## 1. 개요
@@ -16,6 +16,7 @@ MyShelf는 GitHub Actions를 이용하여 코드 변경사항에 대한 빌드, 
 - Pull Request 단위의 자동화된 검증
 - 로컬 환경에 의존하지 않는 빌드 및 테스트
 - PostgreSQL 통합 테스트의 독립성과 재현성 확보
+- Redis 세션·메타데이터 캐시 테스트를 위한 독립 실행 환경 준비
 - Docker 이미지 빌드 검증 및 Registry 게시 자동화
 - 향후 CD 자동화 기반 마련
 
@@ -31,7 +32,7 @@ Jenkins 실습과 운영 배포 자동화는 후속 작업으로 진행한다.
 
 ### 2.1 Workflow
 
-CI Workflow는 `.github/workflows/ci.yml`에 정의한다.
+CI Workflow는 `.github/workflows/ci.yaml`에 정의한다.
 
 | 항목 | 구성 |
 |---|---|
@@ -40,12 +41,13 @@ CI Workflow는 `.github/workflows/ci.yml`에 정의한다.
 | Java | Temurin JDK 21 |
 | Gradle | Gradle Wrapper 9.7.1 |
 | PostgreSQL | `postgres:17` |
+| Redis | `redis:7-alpine`, Runner의 `localhost:6379` |
 | Spring 프로필 | `test` |
 | Gradle 빌드 명령어 | `bash ./gradlew clean build --no-daemon` |
 | Docker 이미지 빌드 | Docker Buildx |
 | Workflow 기본 권한 | `contents: read` |
 
-Java, Gradle, PostgreSQL 및 Spring 프로필 설정은 `build-and-test` Job에서 사용한다. Docker 이미지 관련 Job은 별도의 Runner에서 기존 멀티스테이지 Dockerfile을 이용해 빌드한다.
+Java, Gradle, PostgreSQL·Redis 및 Spring 프로필 설정은 `build-and-test` Job에서 사용한다. Redis 통합 테스트는 테스트 클래스의 `test,redis` 프로필로 DB 1을 사용한다. Docker 이미지 관련 Job은 별도의 Runner에서 기존 멀티스테이지 Dockerfile을 이용해 빌드한다.
 
 GitHub Actions를 주 CI 도구로 사용하며, 별도의 Jenkins 서버는 운영하지 않는다.
 
@@ -53,7 +55,7 @@ GitHub Actions를 주 CI 도구로 사용하며, 별도의 Jenkins 서버는 운
 
 | Job | 역할 | 실행 조건 |
 |---|---|---|
-| `build-and-test` | Gradle 빌드, Spotless 검사, PostgreSQL 통합 테스트 | PR, main Push, 수동 실행 |
+| `build-and-test` | Gradle 빌드, Spotless 검사, PostgreSQL·Redis 통합 테스트 | PR, main Push, 수동 실행 |
 | `verify-image` | Docker 이미지 빌드 가능 여부 검증 | PR, `build-and-test` 성공 후 |
 | `publish-image` | Docker 이미지 빌드 및 GHCR 게시 | main Push, `build-and-test` 성공 후 |
 
@@ -110,11 +112,11 @@ pull_request → main
         |
         v
   build-and-test
-  - PostgreSQL 서비스 준비
+  - PostgreSQL·Redis 서비스 준비
   - JDK 21 및 Gradle 환경 구성
   - Gradle 빌드 및 Spotless 검사
   - Flyway 마이그레이션
-  - PostgreSQL 통합 테스트
+  - PostgreSQL·Redis 통합 테스트
   - 테스트 리포트 업로드
         |
         | 성공 시
@@ -198,6 +200,8 @@ CI 비밀번호와 JWT Secret은 운영 비밀값과 분리된 테스트 전용 
 실제 CI 실행에서 빈 데이터베이스에 Flyway V1 초기 마이그레이션이 성공적으로 적용되는 것을 확인했다.
 
 ## 4. 검증 및 실패 처리
+
+위 구성은 현재 Workflow 파일을 기준으로 한다. 아래 32개 테스트·V1 검증은 초기 CI 구축 당시의 기록이며, 최신 Feature 5 전체 검증 결과로 해석하지 않는다.
 
 ### 4.1 검증 결과
 
@@ -331,7 +335,7 @@ Jenkinsfile, 빌드 자동화, 실행 환경 및 관리 방식의 차이를 학�
 
 ## 6. 관련 문서
 
-- CI 구현: `.github/workflows/ci.yml`
+- CI 구현: `.github/workflows/ci.yaml`
 - Docker 이미지 빌드 구성: `Dockerfile`, `.dockerignore`
 - CI 개념 및 검증 과정: [GitHub Actions CI 학습](../learning/infrastructure/github-actions-ci.md)
 - 개발 일정 및 후속 작업: [로드맵](../planning/roadmap.md)

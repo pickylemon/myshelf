@@ -1,5 +1,8 @@
 package com.myshelf.shelf.adapter.in.web;
 
+import com.myshelf.auth.adapter.in.security.JwtUserIdResolver;
+import com.myshelf.book.application.dto.ShelfBookItem;
+import com.myshelf.book.application.port.in.shelf.ShelfBookListUseCase;
 import com.myshelf.shelf.application.port.in.ShelfCreateCommand;
 import com.myshelf.shelf.application.port.in.ShelfCreateUseCase;
 import com.myshelf.shelf.application.port.in.ShelfDeleteUseCase;
@@ -47,6 +50,7 @@ public class ShelfController {
   private final ShelfGetUseCase shelfGetUseCase;
   private final ShelfUpdateUseCase shelfUpdateUseCase;
   private final ShelfDeleteUseCase shelfDeleteUseCase;
+  private final ShelfBookListUseCase shelfBookListUseCase;
 
   @PostMapping
   @Operation(summary = "서재 생성", description = "소유자 사용자가 DB에 없으면 401(INVALID_SHELF_OWNER)을 반환한다.")
@@ -67,7 +71,7 @@ public class ShelfController {
               schema = @Schema(implementation = ProblemDetail.class)))
   public ResponseEntity<UUID> createShelf(
       @AuthenticationPrincipal Jwt jwt, @RequestBody @Valid ShelfCreateRequest shelfCreateRequest) {
-    UUID userId = resolveUserId(jwt);
+    UUID userId = JwtUserIdResolver.resolveUserId(jwt);
     ShelfCreateCommand shelfCreateCommand = shelfCreateRequest.toCommand(userId);
     UUID shelfId = shelfCreateUseCase.create(shelfCreateCommand);
 
@@ -78,7 +82,7 @@ public class ShelfController {
   @Operation(summary = "서재 목록 조회")
   @ApiResponse(responseCode = "200", description = "서재 목록 반환. 없으면 빈 배열")
   public ResponseEntity<List<ShelfResponse>> getShelves(@AuthenticationPrincipal Jwt jwt) {
-    UUID userId = resolveUserId(jwt);
+    UUID userId = JwtUserIdResolver.resolveUserId(jwt);
     List<Shelf> shelves = shelfListUseCase.list(userId);
     List<ShelfResponse> responses = shelves.stream().map(ShelfResponse::from).toList();
 
@@ -98,14 +102,21 @@ public class ShelfController {
               schema = @Schema(implementation = ProblemDetail.class)))
   public ResponseEntity<ShelfResponse> getShelfDetail(
       @AuthenticationPrincipal Jwt jwt, @PathVariable UUID shelfId) {
-    UUID userId = resolveUserId(jwt);
+    UUID userId = JwtUserIdResolver.resolveUserId(jwt);
     Shelf shelf = shelfGetUseCase.get(shelfId, userId);
 
     return ResponseEntity.ok(ShelfResponse.from(shelf));
   }
 
-  private UUID resolveUserId(Jwt jwt) {
-    return UUID.fromString(jwt.getSubject());
+  @GetMapping("/{shelfId}/books")
+  @Operation(summary = "서재 내 등록된 도서 조회")
+  @ApiResponse(responseCode = "200", description = "서재 내 등록된 도서 정보 반환")
+  public ResponseEntity<List<ShelfBookItem>> getShelfBooks(
+      @AuthenticationPrincipal Jwt jwt, @PathVariable UUID shelfId) {
+    UUID userId = JwtUserIdResolver.resolveUserId(jwt);
+    List<ShelfBookItem> bookList = shelfBookListUseCase.list(shelfId, userId);
+
+    return ResponseEntity.ok(bookList);
   }
 
   @PutMapping("/{shelfId}")
@@ -133,7 +144,7 @@ public class ShelfController {
       @AuthenticationPrincipal Jwt jwt,
       @PathVariable UUID shelfId,
       @RequestBody @Valid ShelfUpdateRequest shelfUpdateRequest) {
-    UUID userId = resolveUserId(jwt);
+    UUID userId = JwtUserIdResolver.resolveUserId(jwt);
     ShelfUpdateCommand command = shelfUpdateRequest.toCommand(shelfId, userId);
     Shelf shelf = shelfUpdateUseCase.update(command);
 
@@ -153,7 +164,7 @@ public class ShelfController {
               schema = @Schema(implementation = ProblemDetail.class)))
   public ResponseEntity<Void> deleteShelf(
       @AuthenticationPrincipal Jwt jwt, @PathVariable UUID shelfId) {
-    UUID userId = resolveUserId(jwt);
+    UUID userId = JwtUserIdResolver.resolveUserId(jwt);
     shelfDeleteUseCase.delete(shelfId, userId);
 
     return ResponseEntity.noContent().build();

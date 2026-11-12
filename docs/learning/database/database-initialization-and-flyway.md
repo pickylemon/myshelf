@@ -54,7 +54,7 @@ DataSource → myshelf
     ↓
 Flyway 실행
     ↓
-myshelf에 미적용 마이그레이션 적용 (현재 소스 V1~V4)
+myshelf에 소스의 미적용 마이그레이션 적용
 ```
 
 ### test 프로필
@@ -66,7 +66,7 @@ DataSource → myshelf_test
     ↓
 Flyway 실행
     ↓
-myshelf_test에 미적용 마이그레이션 적용 (현재 소스 V1~V4)
+myshelf_test에 소스의 미적용 마이그레이션 적용
 ```
 
 따라서 `local` 프로필로 애플리케이션을 실행해도 `myshelf_test`에 마이그레이션이 자동 적용되지는 않는다.

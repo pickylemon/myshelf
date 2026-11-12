@@ -21,7 +21,7 @@ public class UserController {
   @PostMapping
   public ResponseEntity<UUID> createUser(@RequestBody @Valid UserSignUpRequest userSignUpRequest) {
     UserSignUpCommand userSignUpCommand = userSignUpRequest.toCommand();
-    UUID uuid = userSignUpUseCase.signUp(userSignUpCommand);
-    return ResponseEntity.status(HttpStatus.CREATED).body(uuid);
+    UUID userId = userSignUpUseCase.signUp(userSignUpCommand);
+    return ResponseEntity.status(HttpStatus.CREATED).body(userId);
   }
 }

@@ -147,7 +147,7 @@ MyShelf는 사용자별 도서 식별 기준으로 ISBN을 사용한다.
 - 동일 사용자는 동일 ISBN을 가진 도서를 중복 등록할 수 없다.
 - 서로 다른 사용자는 동일 ISBN의 도서를 각각 등록할 수 있다.
 - 동일한 작품이라도 ISBN이 다르면 다른 판본으로 취급하고 별도 등록을 허용한다.
-- ISBN은 저장 전에 일관된 형식으로 정규화한다.
+- ISBN은 현재 외부 검색 식별값을 그대로 사용한다. 입력·재조회 계약은 [Feature 5 정책](./feature-5-book-management.md#32-userbook과-isbn)을 따른다.
 
 데이터베이스에서는 `(user_id, isbn)` UNIQUE 제약으로 동일 사용자의 중복 등록을 방지한다.
 
@@ -238,7 +238,7 @@ MyShelf는 사용자별 도서 식별 기준으로 ISBN을 사용한다.
 | Shelf 삭제 | Shelf 삭제 시 연결된 ShelfBook을 어떤 방식으로 처리할지 |
 | 책 순서 변경 | `position`의 시작값, 중복 허용 여부, 순서 변경 방식 |
 | 검색·정렬 | 검색, 필터, 정렬, 페이지네이션의 초기 범위 |
-| ISBN 정규화 | 하이픈 제거, ISBN-10/13 등 입력 형식을 어떻게 통일할지 |
+| ISBN 정규화 | 현재 미적용. 필요성이 확인되면 Feature 5의 기준 정책을 변경 |
 | 도서정보 | 외부 API에서 검색되지 않거나 ISBN이 없는 책의 향후 지원 여부 |
 
 확정되지 않은 정책을 구현 편의에 따라 임의로 결정하지 않는다.
@@ -280,9 +280,9 @@ Feature 4는 Shelf 자체의 CRUD에 집중하고, 도서 연결 기능은 Featu
 
 전체 테스트 통과와 최종 빌드·CI 통과는 구분한다. 최신 종료 상태는 [로드맵](roadmap.md)에서 관리한다.
 
-### 6.2. Feature 5 도서 기능의 후속 완료 기준
+### 6.2. 도서 기능의 후속 완료 기준
 
-다음 도서 관리 시나리오는 Feature 5에서 구현·검증한다. 기존 Shelf CRUD를 기반으로 하며, 이를 Feature 4 종료 조건에 포함하지 않는다.
+다음은 기존 Shelf CRUD 이후의 도서 관리 시나리오다. 등록·상태 변경·연결 삭제·Shelf별 최소 목록은 [Feature 5](./feature-5-book-management.md), 전체·상세 조회와 순서 변경은 [Feature 6](./feature-6-book-browsing-and-ordering.md)에서 다룬다. 이를 Feature 4 종료 조건에 포함하지 않는다.
 
 - 사용자가 Shelf를 먼저 생성하거나 선택한 뒤 도서를 탐색할 수 있다.
 - 외부 도서정보를 검색하고 특정 Shelf에 책을 등록할 수 있다.
@@ -304,7 +304,8 @@ Feature 4는 Shelf 자체의 CRUD에 집중하고, 도서 연결 기능은 Featu
 
 - 도서 검색·등록, UserBook·ShelfBook 연결 및 독서 상태 관리 (Feature 5)
 - Shelf 내 도서 목록 조회 및 도서 연결 데이터의 삭제 정책·검증 (Feature 5)
-- 문장 수집 및 필사
+- 전체 도서·상세 조회 및 책 순서 변경 (Feature 6)
+- 문장 수집 및 필사 (Feature 7)
 - Paper 관리
 - Collection 관리
 - AI 도서 큐레이션

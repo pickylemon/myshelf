@@ -37,12 +37,12 @@ public class ShelfEntity {
 
   public static ShelfEntity from(Shelf shelf) {
     return new ShelfEntity(
-        shelf.getId(),
-        shelf.getName(),
-        shelf.getDescription(),
-        shelf.getUserId(),
-        shelf.getCreatedAt(),
-        shelf.getUpdatedAt());
+        shelf.id(),
+        shelf.name(),
+        shelf.description(),
+        shelf.userId(),
+        shelf.createdAt(),
+        shelf.updatedAt());
   }
 
   public static Shelf toDomain(ShelfEntity savedShelf) {

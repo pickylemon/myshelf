@@ -9,7 +9,7 @@
 ```java
 // found는 같은 트랜잭션의 findByIdAndUserId() 조회 결과다.
 ShelfEntity entity = found.get();
-entity.update(shelf.getName(), shelf.getDescription());
+entity.update(shelf.name(), shelf.description());
 shelfJpaRepository.flush();
 return Optional.of(ShelfEntity.toDomain(entity));
 ```
@@ -65,5 +65,15 @@ DELETE도 Adapter 안에서 소유자 조건 조회와 삭제를 묶는다. 반�
 - [테스트 전략](../testing/shelf-testing-strategy.md): 테스트 전체에 트랜잭션을 걸지 않은 이유와 계층별 검증 범위
 - [Flyway와 Hibernate](flyway-and-hibernate.md): 스키마 변경·검증 책임
 - [JPA 문제 해결](../../troubleshooting/jpa.md): 제약조건 예외 식별과 과거 H2 환경 문제
+
+## 7. Feature 5의 등록과 관리 트랜잭션
+
+Shelf CRUD의 Adapter 트랜잭션을 모든 기능에 그대로 적용하지는 않았다. 도서 등록은 여러 UserBook·ShelfBook 쓰기가 하나의 업무이므로 `BookRegistrationWriter.register()`를 하나의 트랜잭션으로 묶는다. 외부 API·Redis에서 신규 도서정보를 준비하는 BookService 단계는 그 밖에 둔다. [등록 구조](../../architecture/book-management.md#2-등록-외부-정보-준비와-db-쓰기를-분리)를 참고한다.
+
+이 경계에서는 Adapter의 `save()`가 반환되어도 INSERT가 아직 실행되지 않았을 수 있다. JPA가 변경을 모아 반영하는 **쓰기 지연** 때문에 Writer의 commit 시점에 UNIQUE 위반이 발생하면 Adapter의 catch는 이미 끝난 뒤다.
+
+따라서 UserBook·ShelfBook 생성은 `saveAndFlush()`를 사용해 Adapter 안에서 제약 위반을 확인하고 지정한 UNIQUE 오류만 `DUPLICATE_REGISTRATION`으로 변환한다. flush는 현재 영속성 컨텍스트의 다른 대기 변경도 실행할 수 있으며, commit이 아니므로 뒤 항목의 실패 시 앞 항목도 롤백 대상이다. 실제 전체 롤백의 검증 방법은 [등록 트랜잭션 구조](../../architecture/book-management.md#2-등록-외부-정보-준비와-db-쓰기를-분리)를 참고한다.
+
+메모·독서 상태 변경·다건 삭제는 외부 호출이 없어 BookService의 각 메서드에 트랜잭션을 둔다. 관리 Entity의 필드 변경과 명시적 `deleteAll()`을 사용한다. `ShelfBook.updatedAt`은 `@UpdateTimestamp`로 갱신되며, DB의 `DEFAULT NOW()`는 INSERT 기본값일 뿐 UPDATE 자동 갱신 설정이 아니다.
 
 참고: [Spring Data JPA 트랜잭션](https://docs.spring.io/spring-data/jpa/reference/jpa/transactions.html), [Hibernate Session과 Dirty Checking](https://docs.hibernate.org/orm/7.4/javadocs/org/hibernate/Session.html), [UpdateTimestamp](https://docs.hibernate.org/orm/7.4/javadocs/org/hibernate/annotations/UpdateTimestamp.html).

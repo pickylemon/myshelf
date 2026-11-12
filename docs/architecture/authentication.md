@@ -552,7 +552,7 @@ AuthorizationFilter: 접근 정책 확인
 Controller
 ```
 
-아직 인증이 필요한 업무 API는 없으므로, `JwtRequestAuthenticationIntegrationTest`의 테스트 전용 Controller로 인증 정보 전달까지 확인한다. 요청 인증을 위한 application 포트나 사용자 정의 JWT 필터는 추가하지 않았다.
+JWT 인증 자체는 `JwtRequestAuthenticationIntegrationTest`의 테스트 전용 Controller로 확인한다. 현재는 Shelf CRUD와 Book 검색·등록·관리 업무 API에도 JWT 인증을 적용하며, 웹 Adapter의 `JwtUserIdResolver`로 sub를 UUID로 변환해 UseCase에 전달한다. 요청 인증을 위한 application 포트나 사용자 정의 JWT 필터는 추가하지 않았다.
 
 2026-10-23에 해당 테스트 클래스를 실행해 7개 테스트 메서드의 총 8개 실행 사례가 모두 통과했다. 토큰 없음, 다른 키 서명, 실제 로그인 JWT, 공개 로그인 경로의 잘못된 JWT, 만료, 잘못된 UUID 두 사례, sub 누락을 확인한다. 모든 401 사례에서 공통 ProblemDetail 계약과 인증 헤더를 검증한다. 전체 회귀 테스트·Spotless·전체 빌드·CI는 최종 검증에서 별도로 확인한다.
 

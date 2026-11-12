@@ -18,13 +18,19 @@
 - Shelf 생성·목록 조회·상세 조회·수정·삭제 (Feature 4)
 - 인증된 사용자 UUID 기반 소유권 검증, 사용자별 Shelf 이름 중복 방지
 - 요청 Validation 및 ProblemDetail 오류 응답
+- 외부 도서 통합 검색·더 보기 및 사용자별 등록 서재 정보 조회 (Feature 5)
+- Redis 검색 세션 저장·만료와 단일 서버의 동일 세션 중복 요청 차단
+- UserBook 등록·재사용, ShelfBook 연결 및 ISBN별 메타데이터 캐시
+- 서재별 도서 목록 조회·메모 수정, 독서 상태 변경 및 ShelfBook 다건 삭제
+
+Feature 5는 구현·테스트를 완료하고 PR 리뷰 대기 중입니다. 로컬 검증 범위와 개발자가 확인한 Draft PR CI 통과 결과는 [Feature 5 검증 기록](docs/planning/feature-5-book-management.md#6-구현-단계-및-완료-기준)에 정리합니다.
 
 **이후 범위**
 
-- Feature 5: 도서 검색·등록, UserBook 관리, ShelfBook 연결 및 독서 상태 관리
-- Feature 5: Shelf 내 도서 목록 조회 및 연결 데이터가 있는 Shelf의 삭제 정책·검증
-- Feature 6: 필사 기능
-- 후속 검토: 독서 통계, Redis 캐싱, Kafka 기반 비동기 처리 및 AI Agent
+- Feature 5 PR 리뷰·병합 후 우선 작업: CD·배포 및 포트폴리오 1차 정리
+- Feature 6: 전체 도서·상세 조회, Shelf 내 순서 변경 및 검색 응답 보완
+- Feature 7: 문장 수집·필사
+- 후속 검토: 독서 통계, 일반 조회 캐싱, Kafka 기반 비동기 처리 및 AI Agent
 
 진행 상태와 계획은 [로드맵](docs/planning/roadmap.md)에서 관리합니다.
 
@@ -45,10 +51,11 @@
 ### Database / Infrastructure
 
 - PostgreSQL
+- Redis (검색 세션 저장·ISBN별 도서 메타데이터 캐시)
 - Docker
 - Docker Compose
 
-Redis와 Kafka는 현재 도입하지 않았으며 후속 Feature에서 필요성을 검토합니다.
+Redis는 검색 진행 상태와 ISBN별 도서 메타데이터를 별도 키로 저장합니다. 일반 조회 캐시와 Kafka는 후속 검토 대상입니다.
 
 ### Test
 
@@ -65,6 +72,7 @@ Redis와 Kafka는 현재 도입하지 않았으며 후속 Feature에서 필요�
 com.myshelf
 ├── user
 ├── auth
+├── book
 ├── shelf
 │   ├── domain
 │   ├── application
@@ -83,7 +91,7 @@ com.myshelf
 
 ## 4. 로컬 실행 환경
 
-MyShelf는 Docker Compose를 이용해 Spring Boot와 PostgreSQL을 함께 실행할 수 있습니다.
+MyShelf는 Docker Compose로 Spring Boot, PostgreSQL, Redis 서비스를 구성합니다. 로컬 앱 설정은 `compose.local.yaml`을 함께 사용합니다.
 
 ### 사전 요구사항
 
@@ -97,6 +105,7 @@ MyShelf는 Docker Compose를 이용해 Spring Boot와 PostgreSQL을 함께 실�
 ```dotenv
 JWT_SECRET=<Base64로 인코딩된 JWT 서명키>
 DB_PASSWORD=<PostgreSQL 비밀번호>
+NATIONAL_LIBRARY_API_KEY=<국립중앙도서관 API 키>
 ```
 
 JWT 서명키는 **Base64 디코딩 결과가 최소 32바이트**여야 합니다.
@@ -105,8 +114,8 @@ JWT 서명키는 **Base64 디코딩 결과가 최소 32바이트**여야 합니�
 
 IntelliJ에서 Spring Boot를 직접 실행하는 경우 Run Configuration에서 다음을 설정합니다.
 
-- Active profiles: `local`
-- Environment variables: `JWT_SECRET`, `DB_PASSWORD`
+- Active profiles: `local,redis` (검색 세션을 InMemory에 저장하려면 `redis` 제외)
+- Environment variables: `JWT_SECRET`, `DB_PASSWORD`, `NATIONAL_LIBRARY_API_KEY`
 
 IntelliJ에서는 `.env`가 기본적으로 자동 적용되지 않으므로 환경변수를 별도로 등록해야 합니다.
 
@@ -114,9 +123,11 @@ IntelliJ에서는 `.env`가 기본적으로 자동 적용되지 않으므로 환
 
 프로젝트 루트에서 다음 명령을 실행합니다.
 
+현재 Compose의 app 서비스에는 `NATIONAL_LIBRARY_API_KEY` 전달 설정이 없습니다. `.env`에 값을 작성하는 것만으로 컨테이너에 전달되지는 않으므로, app 기동 전 해당 환경변수 전달 설정이 필요합니다. 아래는 로컬 설정을 병합하는 실행 형식입니다.
+
 ```bash
 # 이미지 빌드 및 컨테이너 실행
-docker compose up -d --build
+docker compose -f compose.yaml -f compose.local.yaml up -d --build
 
 # 컨테이너 상태 확인
 docker compose ps
@@ -134,6 +145,7 @@ docker compose down
 |---|---|
 | Spring Boot | `http://localhost:8080` |
 | PostgreSQL | `localhost:5432` |
+| Redis | `localhost:6379` |
 
 PostgreSQL 데이터는 Docker Named Volume에 보관되며, 일반적인 `docker compose down`으로는 삭제되지 않습니다.
 
@@ -141,7 +153,7 @@ PostgreSQL 데이터는 Docker Named Volume에 보관되며, 일반적인 `docke
 
 ### 테스트 및 API 문서
 
-통합 테스트는 `test` 프로필의 `myshelf_test` DB를 사용합니다. PostgreSQL을 실행하고 Gradle 실행 환경에 테스트 DB의 `DB_PASSWORD`를 설정한 뒤 실행합니다. 테스트용 JWT Secret은 테스트 설정에 정의되어 있습니다.
+통합 테스트는 `myshelf_test`와 Redis 논리 DB 1을 사용합니다. PostgreSQL·Redis를 실행하고 Gradle 실행 환경에 테스트 DB의 `DB_PASSWORD`를 설정합니다. 검색 통합 테스트는 `test,redis` 프로필을 사용하며 외부 검색만 Mock으로 대체합니다. 테스트용 JWT Secret과 가짜 외부 API 키는 테스트 설정에 정의되어 있습니다.
 
 ```bash
 ./gradlew clean build
@@ -157,3 +169,6 @@ Swagger UI 기본 경로는 `/swagger-ui.html`, OpenAPI JSON은 `/v3/api-docs`�
 - [PostgreSQL Docker Compose 구성](docs/learning/infrastructure/docker-compose-postgresql.md)
 - [Spring Boot와 PostgreSQL 통합 실행](docs/learning/infrastructure/docker-compose-spring-boot-postgresql.md)
 - [Docker 환경변수와 Spring Boot 설정](docs/learning/infrastructure/docker-environment-variables.md)
+- [도서 검색 설계](docs/architecture/book-search.md)
+- [Redis 검색 세션](docs/learning/infrastructure/redis-search-session.md)
+- [도서 검색 테스트 전략](docs/learning/testing/book-search-testing-strategy.md)

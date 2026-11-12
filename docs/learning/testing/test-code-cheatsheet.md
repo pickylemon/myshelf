@@ -89,7 +89,7 @@ void 삭제_대상이_없으면_예외가_발생한다() {
 ```java
 ArgumentCaptor<Shelf> captor = ArgumentCaptor.forClass(Shelf.class);
 verify(shelfRepositoryPort).update(captor.capture());
-assertThat(captor.getValue().getName()).isEqualTo("새 이름");
+assertThat(captor.getValue().name()).isEqualTo("새 이름");
 ```
 
 `InOrder order = inOrder(port)` 후 `order.verify(port)...`를 실행 순서대로 나열한다.

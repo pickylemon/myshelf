@@ -1,19 +1,89 @@
 @baseUrl = http://localhost:8080
+@email = docker-test@example.com
+@password = Test1234!
 
-### 회원가입
+# 실행 환경: PostgreSQL·Redis, 애플리케이션 local,redis 프로필과 실제 외부 API 키.
+# 최초에는 회원가입부터 실행하고, 이미 가입했다면 로그인부터 실행한다.
+# 로그인 → 서재 생성 → 조회·수정 → 도서 검색·더 보기 → 서재 삭제 순으로 실행한다.
+# accessToken·shelfId·searchId는 응답에서 자동 저장한다. 토큰이 만료되면 다시 로그인한다.
+
+### 1. 회원가입 — 201 (같은 이메일로 재요청하면 409)
 POST {{baseUrl}}/users
 Content-Type: application/json
 
 {
-  "email": "docker-test@example.com",
-  "password": "Test1234!"
+  "email": "{{email}}",
+  "password": "{{password}}"
 }
 
-### 로그인
+### 2. 로그인 — 200, accessToken 저장
 POST {{baseUrl}}/auth/login
 Content-Type: application/json
 
 {
-  "email": "docker-test@example.com",
-  "password": "Test1234!"
+  "email": "{{email}}",
+  "password": "{{password}}"
 }
+
+> {%
+    client.global.clear("accessToken");
+    client.assert(response.status === 200, "로그인 응답이 200이어야 합니다.");
+    client.global.set("accessToken", response.body.accessToken);
+%}
+
+### 3. 서재 생성 — 201, shelfId 저장 (같은 이름으로 재요청하면 409)
+POST {{baseUrl}}/shelves
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "name": "HTTP 실습 서재",
+  "description": "API 요청으로 생성한 서재"
+}
+
+> {%
+    client.global.clear("shelfId");
+    client.assert(response.status === 201, "서재 생성 응답이 201이어야 합니다.");
+    client.global.set("shelfId", String(response.body).replace(/^"|"$/g, ""));
+%}
+
+### 4. 내 서재 목록 조회 — 200, 없으면 빈 배열
+GET {{baseUrl}}/shelves
+Authorization: Bearer {{accessToken}}
+
+### 5. 내 서재 상세 조회 — 200
+GET {{baseUrl}}/shelves/{{shelfId}}
+Authorization: Bearer {{accessToken}}
+
+### 6. 내 서재 수정 — 200 (description을 null로 바꾸면 기존 설명 제거)
+PUT {{baseUrl}}/shelves/{{shelfId}}
+Authorization: Bearer {{accessToken}}
+Content-Type: application/json
+
+{
+  "name": "HTTP 실습 서재",
+  "description": "API 요청으로 수정한 설명"
+}
+
+### 7. 실제 외부 도서 검색 — 200, searchId 저장
+# 현재 도서 등록 기능은 미구현이므로 위에서 만든 서재와 도서를 연결하지는 않는다.
+GET {{baseUrl}}/books/search?keyword=자바
+Authorization: Bearer {{accessToken}}
+
+> {%
+    client.global.clear("searchId");
+    client.assert(response.status === 200, "검색 응답이 200이어야 합니다.");
+    client.global.set("searchId", response.body.searchId);
+%}
+
+### 8. 검색 더 보기 — 200 (hasNext=true일 때 반복 실행)
+# 빈 목록과 hasNext=true가 함께 반환될 수 있다.
+# hasNext=false이면 세션이 삭제되므로, 이후 같은 ID로 요청하면 404다.
+# 세션이 만료됐거나 소진됐다면 7번 최초 검색부터 다시 실행한다.
+GET {{baseUrl}}/books/search/{{searchId}}
+Authorization: Bearer {{accessToken}}
+
+### 9. 내 서재 삭제 — 204, 본문 없음 (다른 실습을 끝낸 뒤 실행)
+# 삭제 후 5번 상세 조회나 이 삭제 요청을 다시 실행하면 404다.
+DELETE {{baseUrl}}/shelves/{{shelfId}}
+Authorization: Bearer {{accessToken}}

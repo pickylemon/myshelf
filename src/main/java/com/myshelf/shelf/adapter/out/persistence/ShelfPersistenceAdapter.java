@@ -1,15 +1,15 @@
 package com.myshelf.shelf.adapter.out.persistence;
 
+import com.myshelf.global.persistence.ConstraintViolationMatcher;
 import com.myshelf.shelf.application.port.out.ShelfRepositoryPort;
 import com.myshelf.shelf.domain.Shelf;
 import com.myshelf.shelf.error.ShelfErrorCode;
 import com.myshelf.shelf.exception.ShelfException;
 import java.util.List;
-import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 import lombok.RequiredArgsConstructor;
-import org.hibernate.exception.ConstraintViolationException;
+import org.hibernate.exception.ConstraintViolationException.ConstraintKind;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,13 +29,11 @@ public class ShelfPersistenceAdapter implements ShelfRepositoryPort {
 
       return ShelfEntity.toDomain(savedShelf);
     } catch (DataIntegrityViolationException e) {
-      if (isConstraintViolation(
-          e, ConstraintViolationException.ConstraintKind.UNIQUE, NAME_UNIQUE_CONSTRAINT)) {
+      if (ConstraintViolationMatcher.matches(e, ConstraintKind.UNIQUE, NAME_UNIQUE_CONSTRAINT)) {
         throw new ShelfException(ShelfErrorCode.DUPLICATE_NAME);
       }
 
-      if (isConstraintViolation(
-          e, ConstraintViolationException.ConstraintKind.FOREIGN_KEY, USER_FK_CONSTRAINT)) {
+      if (ConstraintViolationMatcher.matches(e, ConstraintKind.FOREIGN_KEY, USER_FK_CONSTRAINT)) {
         throw new ShelfException(ShelfErrorCode.INVALID_SHELF_OWNER);
       }
 
@@ -53,34 +51,10 @@ public class ShelfPersistenceAdapter implements ShelfRepositoryPort {
     return shelfJpaRepository.existsByUserIdAndName(userId, name);
   }
 
-  private boolean isConstraintViolation(
-      Throwable throwable,
-      ConstraintViolationException.ConstraintKind kind,
-      String expectedConstraintName) {
-    Throwable cause = throwable;
-    while (cause != null) {
-      if (cause instanceof ConstraintViolationException constraintException) {
-        if (constraintException.getKind() != kind) {
-          return false;
-        }
-
-        String constraintName = constraintException.getConstraintName();
-        return constraintName != null
-            && constraintName
-                .toUpperCase(Locale.ROOT)
-                .contains(expectedConstraintName.toUpperCase(Locale.ROOT));
-      }
-
-      cause = cause.getCause();
-    }
-
-    return false;
-  }
-
   @Override
   public boolean existsByUserIdAndNameExcludingSelf(Shelf shelf) {
     return shelfJpaRepository.existsByUserIdAndNameAndIdNot(
-        shelf.getUserId(), shelf.getName(), shelf.getId());
+        shelf.userId(), shelf.name(), shelf.id());
   }
 
   @Override
@@ -102,14 +76,13 @@ public class ShelfPersistenceAdapter implements ShelfRepositoryPort {
   @Override
   @Transactional
   public Optional<Shelf> update(Shelf shelf) {
-    Optional<ShelfEntity> found =
-        shelfJpaRepository.findByIdAndUserId(shelf.getId(), shelf.getUserId());
+    Optional<ShelfEntity> found = shelfJpaRepository.findByIdAndUserId(shelf.id(), shelf.userId());
 
     if (found.isEmpty()) return Optional.empty();
 
     try {
       ShelfEntity entity = found.get();
-      entity.update(shelf.getName(), shelf.getDescription());
+      entity.update(shelf.name(), shelf.description());
 
       shelfJpaRepository.flush();
 
@@ -117,8 +90,7 @@ public class ShelfPersistenceAdapter implements ShelfRepositoryPort {
 
     } catch (DataIntegrityViolationException e) {
 
-      if (isConstraintViolation(
-          e, ConstraintViolationException.ConstraintKind.UNIQUE, NAME_UNIQUE_CONSTRAINT)) {
+      if (ConstraintViolationMatcher.matches(e, ConstraintKind.UNIQUE, NAME_UNIQUE_CONSTRAINT)) {
         throw new ShelfException(ShelfErrorCode.DUPLICATE_NAME);
       }
 

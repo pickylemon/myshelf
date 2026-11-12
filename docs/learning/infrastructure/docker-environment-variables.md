@@ -386,7 +386,7 @@ DB 비밀번호 환경변수 분리 설정을 적용한 이후 다음 동작도 
 - IntelliJ에서 Spring Boot 직접 실행
 - 기존 회원 로그인 및 JWT 발급
 
-발급된 토큰을 이용한 보호 API 인증 처리는 아직 구현하지 않았다.
+위 Compose 통합 검증 당시에는 보호 API 인증을 구현하기 전이었다. 현재는 Feature 3의 요청 인증과 Shelf·Book 업무 API를 구현했으며, 최신 흐름은 [인증 아키텍처](../../architecture/authentication.md)를 참고한다.
 
 ---
 

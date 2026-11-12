@@ -102,7 +102,7 @@ class ShelfPersistenceAdapterIntegrationTest {
         shelfPersistenceAdapter.save(new Shelf(UUID.randomUUID(), name, "다른 사용자", secondUser));
 
     assertThat(shelfPersistenceAdapter.existsByUserIdAndName(secondUser, name)).isTrue();
-    assertThat(shelfJpaRepository.findById(secondShelf.getId()))
+    assertThat(shelfJpaRepository.findById(secondShelf.id()))
         .hasValueSatisfying(entity -> assertThat(entity.getUserId()).isEqualTo(secondUser));
   }
 
@@ -140,16 +140,16 @@ class ShelfPersistenceAdapterIntegrationTest {
     Shelf saved =
         shelfPersistenceAdapter.save(new Shelf(UUID.randomUUID(), "생성 시각 확인", null, userId));
 
-    assertThat(saved.getCreatedAt()).isNotNull();
-    assertThat(saved.getUpdatedAt()).isNotNull();
-    assertThat(shelfJpaRepository.findById(saved.getId()))
+    assertThat(saved.createdAt()).isNotNull();
+    assertThat(saved.updatedAt()).isNotNull();
+    assertThat(shelfJpaRepository.findById(saved.id()))
         .hasValueSatisfying(
             entity -> {
-              assertThat(entity.getCreatedAt()).isEqualTo(saved.getCreatedAt());
-              assertThat(entity.getUpdatedAt()).isEqualTo(saved.getUpdatedAt());
+              assertThat(entity.getCreatedAt()).isEqualTo(saved.createdAt());
+              assertThat(entity.getUpdatedAt()).isEqualTo(saved.updatedAt());
               Shelf restored = ShelfEntity.toDomain(entity);
-              assertThat(restored.getCreatedAt()).isEqualTo(entity.getCreatedAt());
-              assertThat(restored.getUpdatedAt()).isEqualTo(entity.getUpdatedAt());
+              assertThat(restored.createdAt()).isEqualTo(entity.getCreatedAt());
+              assertThat(restored.updatedAt()).isEqualTo(entity.getUpdatedAt());
             });
   }
 
@@ -166,7 +166,7 @@ class ShelfPersistenceAdapterIntegrationTest {
     assertThat(actual).hasSize(2);
     for (Shelf expected : List.of(first, second)) {
       assertThat(actual)
-          .filteredOn(shelf -> shelf.getId().equals(expected.getId()))
+          .filteredOn(shelf -> shelf.id().equals(expected.id()))
           .singleElement()
           .usingRecursiveComparison()
           .isEqualTo(expected);
@@ -188,7 +188,7 @@ class ShelfPersistenceAdapterIntegrationTest {
     UUID userId = createUser();
     Shelf expected = insertShelf(userId, "내 서재", "설명");
 
-    assertThat(shelfPersistenceAdapter.findByIdAndUserId(expected.getId(), userId))
+    assertThat(shelfPersistenceAdapter.findByIdAndUserId(expected.id(), userId))
         .hasValueSatisfying(
             actual -> assertThat(actual).usingRecursiveComparison().isEqualTo(expected));
   }
@@ -199,7 +199,7 @@ class ShelfPersistenceAdapterIntegrationTest {
   void getReturnsEmptyForOtherOwnerOrMissingShelf(boolean ownedByOtherUser) {
     UUID userId = createUser();
     UUID shelfId =
-        ownedByOtherUser ? insertShelf(createUser(), "타인의 서재", null).getId() : UUID.randomUUID();
+        ownedByOtherUser ? insertShelf(createUser(), "타인의 서재", null).id() : UUID.randomUUID();
 
     assertThat(shelfPersistenceAdapter.findByIdAndUserId(shelfId, userId)).isEmpty();
   }
@@ -214,29 +214,28 @@ class ShelfPersistenceAdapterIntegrationTest {
 
     // when
     Optional<Shelf> result =
-        shelfPersistenceAdapter.update(new Shelf(savedShelf.getId(), name, description, userId));
+        shelfPersistenceAdapter.update(new Shelf(savedShelf.id(), name, description, userId));
 
     // then
     Map<String, Object> stored =
-        jdbcTemplate.queryForMap("select * from shelves where id = ?", savedShelf.getId());
-    assertThat(stored.get("id")).isEqualTo(savedShelf.getId());
+        jdbcTemplate.queryForMap("select * from shelves where id = ?", savedShelf.id());
+    assertThat(stored.get("id")).isEqualTo(savedShelf.id());
     assertThat(stored.get("user_id")).isEqualTo(userId);
     assertThat(stored.get("name")).isEqualTo(name);
     assertThat(stored.get("description")).isEqualTo(description);
     assertThat(((Timestamp) stored.get("created_at")).toInstant())
-        .isEqualTo(savedShelf.getCreatedAt());
-    assertThat(((Timestamp) stored.get("updated_at")).toInstant())
-        .isAfter(savedShelf.getUpdatedAt());
+        .isEqualTo(savedShelf.createdAt());
+    assertThat(((Timestamp) stored.get("updated_at")).toInstant()).isAfter(savedShelf.updatedAt());
     assertThat(result)
         .hasValueSatisfying(
             actual -> {
-              assertThat(actual.getId()).isEqualTo(savedShelf.getId());
-              assertThat(actual.getUserId()).isEqualTo(userId);
-              assertThat(actual.getName()).isEqualTo(name);
-              assertThat(actual.getDescription()).isEqualTo(description);
-              assertThat(actual.getCreatedAt())
+              assertThat(actual.id()).isEqualTo(savedShelf.id());
+              assertThat(actual.userId()).isEqualTo(userId);
+              assertThat(actual.name()).isEqualTo(name);
+              assertThat(actual.description()).isEqualTo(description);
+              assertThat(actual.createdAt())
                   .isEqualTo(((Timestamp) stored.get("created_at")).toInstant());
-              assertThat(actual.getUpdatedAt())
+              assertThat(actual.updatedAt())
                   .isEqualTo(((Timestamp) stored.get("updated_at")).toInstant());
             });
   }
@@ -249,16 +248,15 @@ class ShelfPersistenceAdapterIntegrationTest {
     UUID ownerId = createUser();
     Shelf savedShelf = insertShelf(ownerId, "타인의 서재", "기존 설명");
     Map<String, Object> before =
-        jdbcTemplate.queryForMap("select * from shelves where id = ?", savedShelf.getId());
+        jdbcTemplate.queryForMap("select * from shelves where id = ?", savedShelf.id());
 
     // when
     Optional<Shelf> result =
-        shelfPersistenceAdapter.update(
-            new Shelf(savedShelf.getId(), "변경할 이름", "변경할 설명", requesterId));
+        shelfPersistenceAdapter.update(new Shelf(savedShelf.id(), "변경할 이름", "변경할 설명", requesterId));
 
     // then
     assertThat(result).isEmpty();
-    assertThat(jdbcTemplate.queryForMap("select * from shelves where id = ?", savedShelf.getId()))
+    assertThat(jdbcTemplate.queryForMap("select * from shelves where id = ?", savedShelf.id()))
         .isEqualTo(before);
   }
 
@@ -274,9 +272,7 @@ class ShelfPersistenceAdapterIntegrationTest {
 
     // when, then
     assertThatThrownBy(
-            () ->
-                shelfPersistenceAdapter.update(
-                    new Shelf(target.getId(), "소설", "실패할 설명 변경", userId)))
+            () -> shelfPersistenceAdapter.update(new Shelf(target.id(), "소설", "실패할 설명 변경", userId)))
         .isInstanceOfSatisfying(
             ShelfException.class,
             ex -> assertThat(ex.getErrorCode()).isEqualTo(ShelfErrorCode.DUPLICATE_NAME));
@@ -293,18 +289,18 @@ class ShelfPersistenceAdapterIntegrationTest {
     Shelf target = insertShelf(userId, "삭제할 서재", null);
     Shelf other = insertShelf(createUser(), "남겨둘 서재", "다른 사용자");
     Map<String, Object> otherBefore =
-        jdbcTemplate.queryForMap("select * from shelves where id = ?", other.getId());
+        jdbcTemplate.queryForMap("select * from shelves where id = ?", other.id());
 
     // when
-    boolean deleted = shelfPersistenceAdapter.delete(target.getId(), userId);
+    boolean deleted = shelfPersistenceAdapter.delete(target.id(), userId);
 
     // then
     assertThat(deleted).isTrue();
     assertThat(
             jdbcTemplate.queryForObject(
-                "select count(*) from shelves where id = ?", Long.class, target.getId()))
+                "select count(*) from shelves where id = ?", Long.class, target.id()))
         .isZero();
-    assertThat(jdbcTemplate.queryForMap("select * from shelves where id = ?", other.getId()))
+    assertThat(jdbcTemplate.queryForMap("select * from shelves where id = ?", other.id()))
         .isEqualTo(otherBefore);
   }
 
@@ -315,14 +311,14 @@ class ShelfPersistenceAdapterIntegrationTest {
     UUID requesterId = createUser();
     Shelf target = insertShelf(createUser(), "타인의 서재", "기존 설명");
     Map<String, Object> before =
-        jdbcTemplate.queryForMap("select * from shelves where id = ?", target.getId());
+        jdbcTemplate.queryForMap("select * from shelves where id = ?", target.id());
 
     // when
-    boolean deleted = shelfPersistenceAdapter.delete(target.getId(), requesterId);
+    boolean deleted = shelfPersistenceAdapter.delete(target.id(), requesterId);
 
     // then
     assertThat(deleted).isFalse();
-    assertThat(jdbcTemplate.queryForMap("select * from shelves where id = ?", target.getId()))
+    assertThat(jdbcTemplate.queryForMap("select * from shelves where id = ?", target.id()))
         .isEqualTo(before);
   }
 
