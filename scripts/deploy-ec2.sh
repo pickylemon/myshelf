@@ -1,80 +1,145 @@
 
 #!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
 
-# 스크립트 실행 중 오류가 발생하면 배포를 중단하도록 설정한다.
-# -e: 명령이 실패하면 스크립트 종료
-# -u: 정의되지 않은 변수를 사용하면 오류 처리
-# -o pipefail: 파이프라인 중간의 명령이 실패해도 오류 처리
-set -euo pipefail
+# 사용법: bash deploy-ec2.sh <40자리 커밋 SHA>
+# CI에서 게시한 커밋 SHA를 첫 번째 인자로 전달받는다.
+DEPLOY_SHA="${1:-}"
 
-# Docker Compose 파일과 .env 파일이 있는 배포 디렉터리로 이동한다.
-cd /opt/myshelf
-
-# 운영 환경변수 파일이 없으면 배포를 중단한다.
-# DB 비밀번호, JWT 비밀 키, 배포 이미지 태그 등이 이 파일에 정의되어 있다.
-if [[ ! -f .env ]]; then
-  echo "ERROR: .env file not found" >&2
+# 잘못된 이미지 버전이나 명령어가 전달되지 않도록 검증한다.
+if [[ ! "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+  echo "ERROR: Invalid commit SHA" >&2
   exit 1
 fi
 
-# 반복해서 사용할 Docker Compose 명령을 Bash 배열로 정의한다.
-# sudo -n: 비밀번호 입력 없이 관리자 권한으로 실행하며,
-#          비밀번호가 필요한 경우 즉시 실패한다.
-# -f: 공통 Compose 설정과 운영 환경 설정을 순서대로 병합한다.
+NEW_IMAGE="ghcr.io/pickylemon/myshelf:sha-${DEPLOY_SHA}"
+
+cd /opt/myshelf
+
+ENV_FILE=".env"
+HISTORY_FILE="deployment-history.log"
+LAST_SUCCESS_FILE=".last-successful-image"
+
+# 운영 환경변수 파일이 있는지 확인한다.
+if [[ ! -f "$ENV_FILE" ]]; then
+  echo "ERROR: .env not found" >&2
+  exit 1
+fi
+
+# 이미지 변수가 정확히 한 번 정의되어 있어야 한다.
+if [[ $(grep -c '^MYSHELF_IMAGE=' "$ENV_FILE" || true) != 1 ]]; then
+  echo "ERROR: Invalid MYSHELF_IMAGE configuration" >&2
+  exit 1
+fi
+
+# 변경하기 전 이미지 버전을 보관한다.
+OLD_IMAGE=$(grep '^MYSHELF_IMAGE=' "$ENV_FILE" | cut -d= -f2-)
+
+# 배포 시각, 결과, 이전/신규 이미지를 기록한다.
+record_history() {
+  printf '%s | %s | from=%s | to=%s\n' \
+    "$(date -u +'%Y-%m-%dT%H:%M:%SZ')" \
+    "$1" "$OLD_IMAGE" "$NEW_IMAGE" >> "$HISTORY_FILE"
+}
+
+# 배포 중 오류가 나면 실패 이력을 남긴다.
+# 임시 파일이 남아 있다면 제거한다.
+TEMP_FILE=""
+
+on_exit() {
+  local exit_code=$?
+
+  if [[ -n "$TEMP_FILE" && -f "$TEMP_FILE" ]]; then
+    rm -f "$TEMP_FILE"
+  fi
+
+  if (( exit_code != 0 )); then
+    record_history "FAILED"
+  fi
+}
+
+trap on_exit EXIT
+
+record_history "STARTED"
+
+echo "Deploying: $NEW_IMAGE"
+
+# 1. 새 이미지가 GHCR에 존재하고 다운로드 가능한지 먼저 확인한다.
+# 다운로드가 실패하면 .env를 수정하지 않는다.
+echo "1. Pull new image"
+sudo -n docker pull "$NEW_IMAGE"
+
+# 2. .env에서 MYSHELF_IMAGE 항목만 새 이미지로 변경한다.
+# 비밀번호나 API 키 등 나머지 항목은 그대로 유지한다.
+# 임시 파일을 같은 디렉터리에 생성한 뒤 교체한다.
+echo "2. Update image version"
+
+TEMP_FILE=$(mktemp /opt/myshelf/.env.XXXXXX)
+
+awk -v image="$NEW_IMAGE" '
+  /^MYSHELF_IMAGE=/ {
+    print "MYSHELF_IMAGE=" image
+    next
+  }
+  { print }
+' "$ENV_FILE" > "$TEMP_FILE"
+
+mv "$TEMP_FILE" "$ENV_FILE"
+TEMP_FILE=""
+
+# 반복해서 사용할 운영 Compose 명령
 COMPOSE=(
   sudo -n docker compose
   -f compose.yaml
   -f compose.prod.yaml
 )
 
-# 1. Compose 설정 및 환경변수 치환 결과가 유효한지 검사한다.
-# --quiet: 설정 내용을 출력하지 않고 검증 결과만 반환한다.
-echo "1. Validate Compose configuration"
+# 3. 변경한 환경변수와 Compose 설정이 유효한지 확인한다.
+echo "3. Validate Compose configuration"
 "${COMPOSE[@]}" config --quiet
 
-# 2. .env의 MYSHELF_IMAGE에 지정된 애플리케이션 이미지를 GHCR에서 가져온다.
-# app은 Compose 파일에 정의된 서비스 이름이다.
-# PostgreSQL과 Redis 이미지는 여기서 별도로 Pull하지 않는다.
-echo "2. Pull application image"
-"${COMPOSE[@]}" pull app
-
-# 3. Compose 설정에 따라 컨테이너를 실행한다.
-# 변경된 이미지나 설정이 있다면 필요한 컨테이너를 재생성한다.
-# -d: 백그라운드에서 컨테이너를 실행한다.
-echo "3. Start containers"
+# 4. 새 이미지를 사용하는 컨테이너를 실행한다.
+echo "4. Start containers"
 "${COMPOSE[@]}" up -d
 
-# 4. 애플리케이션, PostgreSQL, Redis 컨테이너의 실행 상태를 출력한다.
-echo "4. Check container status"
 "${COMPOSE[@]}" ps
 
-# 5. 애플리케이션이 실제 HTTP 요청에 응답하는지 확인한다.
-# 컨테이너가 실행되더라도 Spring Boot 초기화가 끝나지 않았을 수 있으므로
-# 최대 30번 재시도한다.
+# 5. 실제 app 컨테이너에 새 이미지가 적용되었는지 확인한다.
+CONTAINER_ID=$("${COMPOSE[@]}" ps -q app)
+
+if [[ -z "$CONTAINER_ID" ]]; then
+  echo "ERROR: App container is not running" >&2
+  exit 1
+fi
+
+RUNNING_IMAGE=$(
+  sudo -n docker inspect --format '{{.Config.Image}}' "$CONTAINER_ID"
+)
+
+if [[ "$RUNNING_IMAGE" != "$NEW_IMAGE" ]]; then
+  echo "ERROR: Running image does not match target" >&2
+  exit 1
+fi
+
+# 6. Spring Boot의 HTTP 응답을 최대 30회 확인한다.
 echo "5. Verify HTTP response"
 
 for attempt in {1..30}; do
-
-  # -f: HTTP 400~599 응답을 실패로 처리
-  # -sS: 진행 상황은 숨기고 오류 메시지는 표시
-  # --max-time 3: 요청당 최대 3초 대기
-  # -o /dev/null: HTTP 응답 본문은 출력하지 않음
-  # 2>/dev/null: 오류 메시지를 화면에 표시하지 않음
   if curl -fsS --max-time 3 \
       -o /dev/null \
       http://127.0.0.1:8080/v3/api-docs 2>/dev/null; then
 
-    # HTTP 요청에 성공하면 배포 검증을 완료한다.
+    # 검증에 성공한 이미지 버전과 배포 결과를 기록한다.
+    printf '%s\n' "$NEW_IMAGE" > "$LAST_SUCCESS_FILE"
+    record_history "SUCCESS"
+
     echo "Deployment verification succeeded"
     exit 0
   fi
 
-  # 아직 응답하지 않으면 2초 기다린 뒤 다시 요청한다.
   sleep 2
 done
 
-# 모든 재시도에 실패하면 오류 메시지를 출력하고 비정상 종료한다.
-# >&2: 오류 메시지를 표준 에러(stderr)로 출력
-# exit 1: GitHub Actions가 배포 실패로 판단할 수 있도록 종료 코드 반환
 echo "ERROR: Deployment verification failed" >&2
 exit 1

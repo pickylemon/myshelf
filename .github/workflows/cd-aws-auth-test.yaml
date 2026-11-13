@@ -118,14 +118,17 @@ jobs:
         env:
           EC2_HOST: ${{ vars.EC2_HOST }}
           EC2_USER: ${{ vars.EC2_USER }}
+
+          # 테스트 단계: 기존에 게시된 이미지 SHA를 사용한다.
+          DEPLOY_SHA: 4e651623b2f855f81d4a023d365632358b0d484b
+
         run: |
           ssh -i ~/.ssh/myshelf_cd \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
             -o BatchMode=yes \
-            -o ConnectTimeout=10 \
             "$EC2_USER@$EC2_HOST" \
-            'bash /opt/myshelf/deploy-ec2.sh'
+            "bash /opt/myshelf/deploy-ec2.sh '$DEPLOY_SHA'"
 
       # 9. 작업 성공 여부와 관계없이 임시 SSH 접근 규칙을 제거한다.
       # 규칙을 실제로 생성한 경우에만 삭제를 시도한다.
