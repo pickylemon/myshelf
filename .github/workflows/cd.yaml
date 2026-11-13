@@ -1,0 +1,147 @@
+
+name: CD EC2 Deployment
+
+# main 브랜치의 CI 워크플로가 완료되면 실행
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types:
+      - completed
+
+permissions:
+  contents: read
+  id-token: write
+
+# 동일한 EC2에 여러 배포 작업이 동시에 실행되지 않도록 제한
+concurrency:
+  group: myshelf-ec2-deployment
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # main에 Push된 CI가 성공한 경우에만 배포
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == 'pickylemon/myshelf'
+
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      # 1. CI에서 빌드한 커밋의 배포 파일을 가져온다.
+      - name: Checkout deployment revision
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      # 2. GitHub OIDC를 이용해 AWS 임시 자격 증명을 얻는다.
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ap-northeast-2
+          role-to-assume: ${{ vars.AWS_CD_ROLE_ARN }}
+
+      # 3. GitHub Actions Runner의 공인 IPv4 주소를 조회한다.
+      - name: Get runner public IP
+        id: runner-ip
+        run: |
+          RUNNER_IP=$(curl -4 -fsS https://checkip.amazonaws.com)
+
+          echo "Runner public IP: $RUNNER_IP"
+          echo "ip=$RUNNER_IP" >> "$GITHUB_OUTPUT"
+
+      # 4. EC2 보안 그룹에 Runner의 SSH 접근을 일시적으로 허용한다.
+      - name: Allow runner SSH access
+        id: allow-ssh
+        env:
+          SG_ID: ${{ vars.EC2_SG_ID }}
+          RUNNER_IP: ${{ steps.runner-ip.outputs.ip }}
+        run: |
+          RULE_ID=$(aws ec2 authorize-security-group-ingress \
+            --group-id "$SG_ID" \
+            --protocol tcp \
+            --port 22 \
+            --cidr "$RUNNER_IP/32" \
+            --query 'SecurityGroupRules[0].SecurityGroupRuleId' \
+            --output text)
+
+          echo "rule_id=$RULE_ID" >> "$GITHUB_OUTPUT"
+          echo "Temporary SSH rule created: $RULE_ID"
+
+      # 5. SSH 개인 키와 EC2 호스트 공개 키를 설정한다.
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          EC2_HOST_KEY: ${{ vars.EC2_SSH_HOST_KEY }}
+          EC2_HOST: ${{ vars.EC2_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/myshelf_cd
+          chmod 600 ~/.ssh/myshelf_cd
+
+          printf '%s %s\n' "$EC2_HOST" "$EC2_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      # 6. EC2 SSH 연결을 확인한다.
+      - name: Test EC2 SSH connection
+        env:
+          EC2_HOST: ${{ vars.EC2_HOST }}
+          EC2_USER: ${{ vars.EC2_USER }}
+        run: |
+          ssh -i ~/.ssh/myshelf_cd \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o BatchMode=yes \
+            -o ConnectTimeout=10 \
+            "$EC2_USER@$EC2_HOST" 'whoami'
+
+      # 7. Compose 설정과 배포 스크립트를 EC2로 복사한다.
+      # EC2에 존재하는 .env는 덮어쓰지 않는다.
+      - name: Upload deployment files
+        env:
+          EC2_HOST: ${{ vars.EC2_HOST }}
+          EC2_USER: ${{ vars.EC2_USER }}
+        run: |
+          scp -i ~/.ssh/myshelf_cd \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o BatchMode=yes \
+            -o ConnectTimeout=10 \
+            compose.yaml \
+            compose.prod.yaml \
+            scripts/deploy-ec2.sh \
+            "$EC2_USER@$EC2_HOST:/opt/myshelf/"
+
+      # 8. CI가 게시한 이미지의 커밋 SHA를 배포 스크립트에 전달한다.
+      # 스크립트 내부에서 이미지 Pull, .env 갱신,
+      # Compose 실행, HTTP 검증, 배포 이력 기록을 수행한다.
+      - name: Deploy MyShelf
+        env:
+          EC2_HOST: ${{ vars.EC2_HOST }}
+          EC2_USER: ${{ vars.EC2_USER }}
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          ssh -i ~/.ssh/myshelf_cd \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o BatchMode=yes \
+            -o ConnectTimeout=10 \
+            "$EC2_USER@$EC2_HOST" \
+            "bash /opt/myshelf/deploy-ec2.sh '$DEPLOY_SHA'"
+
+      # 9. 성공·실패 여부와 관계없이 임시 SSH 규칙을 제거한다.
+      - name: Remove runner SSH access
+        if: ${{ always() && steps.allow-ssh.outputs.rule_id != '' }}
+        env:
+          SG_ID: ${{ vars.EC2_SG_ID }}
+          RULE_ID: ${{ steps.allow-ssh.outputs.rule_id }}
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id "$SG_ID" \
+            --security-group-rule-ids "$RULE_ID"
+
+          echo "Temporary SSH rule removed: $RULE_ID"
