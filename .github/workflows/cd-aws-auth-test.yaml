@@ -1,0 +1,27 @@
+
+name: CD AWS Authentication Test
+
+on:
+  push:
+    branches:
+      - cd/ec2-deployment
+    paths:
+      - .github/workflows/cd-aws-auth-test.yaml
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  aws-auth-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ap-northeast-2
+          role-to-assume: ${{ vars.AWS_CD_ROLE_ARN }}
+
+      - name: Verify AWS identity
+        run: aws sts get-caller-identity
