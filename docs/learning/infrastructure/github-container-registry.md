@@ -1,6 +1,7 @@
 # GitHub Container Registry 기반 이미지 게시 및 실행 검증
 
 > 학습일: 2026-10-22
+> 최종 수정일: 2026-11-13
 > 대상: MyShelf Docker 이미지의 GHCR 게시, 다운로드 및 실행 검증
 > 관련 문서: [CI/CD 아키텍처](../../architecture/ci-cd.md), [GitHub Actions CI 학습](github-actions-ci.md)
 > 관련 Issue: #15
@@ -22,7 +23,7 @@ MyShelf는 GitHub Actions를 통해 Gradle 빌드·테스트와 Docker 이미지
 
 이번 작업의 핵심은 **CI에서 빌드한 이미지를 Registry에 게시하고, 다른 환경에서 소스 코드를 다시 빌드하지 않고도 해당 이미지를 실행할 수 있는지 확인하는 것**이다.
 
-운영 서버 자동 배포는 이번 작업에 포함하지 않았다.
+최초 GHCR 학습 당시에는 운영 서버 자동 배포를 범위에서 제외했다. 이후 별도 CD 작업을 통해 2026-11-13 EC2 자동 배포를 검증했다([GitHub Actions CD](github-actions-cd.md)).
 
 ## 2. Container Registry와 GHCR
 
@@ -273,6 +274,7 @@ GitHub Actions에서는 `GITHUB_TOKEN`으로 GHCR에 로그인했다.
 |---|---|---|
 | GitHub Actions | `GITHUB_TOKEN` | GHCR 이미지 게시 |
 | 로컬 Docker | Personal Access Token (classic) | Private 이미지 다운로드 |
+| EC2 (`sudo docker`) | Personal Access Token (classic), `read:packages` | 운영 서버에서 Private 이미지 Pull |
 
 로컬 다운로드를 위해 GitHub의 Personal Access Token (classic)을 생성했다.
 
@@ -670,7 +672,7 @@ Build Once, Deploy Many는 한 번 생성한 배포용 이미지를 여러 환�
 
 다만 PR에서 수행한 `verify-image`와 `main`에서 수행한 `publish-image`는 별도의 이미지 빌드이므로 동일한 이미지가 아니다.
 
-향후 실제 CD 환경에서는 GHCR에 게시한 이미지의 Digest를 기준으로 동일한 이미지를 테스트 및 운영 환경에 배포하는 방향을 검토한다.
+이후 구현한 EC2 CD에서는 CI 커밋 SHA를 이미지 태그에 반영해 배포 버전을 연결했다. 단, SHA **태그**는 Git 커밋을 나타낼 뿐 이미지 Digest처럼 불변 참조를 보장하지 않으므로, Digest 고정은 후속 개선 과제로 남겼다.
 
 ## 9. 최종 검증 결과와 향후 계획
 
@@ -693,19 +695,8 @@ Build Once, Deploy Many는 한 번 생성한 배포용 이미지를 여러 환�
 
 이를 통해 **GitHub Actions에서 Docker 이미지를 빌드·게시하고, 다른 실행 환경에서 해당 이미지를 다운로드하여 실제 애플리케이션 기능을 실행하는 과정**을 검증했다.
 
-### 9.2 향후 확장
+### 9.2 후속 EC2 자동 배포 검증 (2026-11-13)
 
-이번 작업에서는 실제 운영 서버 배포와 CD 자동화까지 구현하지 않았다.
+GHCR 게시 이후 별도 CD 작업을 구현해 CI 성공부터 EC2 신규 이미지 실행까지 연결했다. 실행 번호·배포 SHA·HTTP 확인 결과는 [최초 통합 검증 기록](github-actions-cd.md#7-실제-최초-통합-검증)에서 관리한다.
 
-향후 진행할 작업은 다음과 같다.
-
-- Jenkins Pipeline 기초 실습
-- 운영 서버 및 DB 환경 구성
-- 운영 환경용 Docker Compose 설정 검토
-- GHCR 게시 이미지의 Digest 기반 배포
-- 배포 후 Health Check
-- 배포 실패 시 복구 및 롤백 전략 수립
-
-현재 MyShelf는 GitHub Actions를 통해 CI 및 GHCR 이미지 게시 자동화를 구성한 상태다.
-
-추후 실제 배포 대상과 운영 환경이 결정되면 GHCR에 게시된 이미지를 재사용하는 방식으로 CD를 확장할 예정이다.
+이는 최초 **로컬 GHCR 실행 검증의 후속 결과**다. 현재 CD는 SHA 태그 기반으로 배포하고 있으며, Digest 고정·자동 롤백·보다 엄격한 서비스 준비 상태 검증은 아직 적용하지 않았다. [EC2 수동 배포 학습](ec2-manual-deployment.md)과 [EC2 자동 배포 학습](ec2-automated-deployment.md)에 관련 절차를 정리한다.

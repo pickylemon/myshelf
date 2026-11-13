@@ -2,11 +2,12 @@
 
 - **유형:** Learning
 - **최종 수동 검증일:** 2026-11-12
+- **최종 수정일:** 2026-11-13
 - **대상:** MyShelf / Ubuntu 24.04 / AWS EC2 `t4g.small` (ARM64)
 - **범위:** 비공개 GHCR 이미지 인증, 이미지 다운로드, Compose 실행, 기본 HTTP 응답 검증
-- **후속 작업:** GitHub Actions CD 자동화 (`cd/ec2-deployment`)
+- **후속 자동화:** GitHub Actions SSH 기반 CD 구축 및 `main` 병합 검증 완료 (2026-11-13)
 
-> 이 문서는 **수동으로 성공한 배포 절차**를 재현하기 위한 기록이다. 실제 운영용 자격 증명, API 키, DB 비밀번호를 문서에 기록하지 않는다.
+> 이 문서는 **2026-11-12에 검증한 수동 배포 절차**를 재현하기 위한 기록이다. 2026-11-13부터는 CI 성공 후 CD로 자동 배포하며, 수동 절차는 점검·복구 시 참고한다. 실제 운영용 자격 증명, API 키, DB 비밀번호를 문서에 기록하지 않는다.
 
 ## 1. 배포 구조
 
@@ -61,7 +62,7 @@ scp -i <SSH_KEY_PATH> `
   ubuntu@<EC2_PUBLIC_IP>:/opt/myshelf/
 ```
 
-운영 `.env`는 EC2에서 따로 관리하므로 복사·덮어쓰지 않는다. GitHub 저장소에서 버전 관리되는 것은 Compose 설정이고, EC2가 변경 사항을 자동으로 받는 것은 아니다. CD 구현 후에는 이 파일 전달 단계도 자동화한다.
+운영 `.env`는 EC2에서 따로 관리하므로 복사·덮어쓰지 않는다. 위 명령은 수동 배포 시에만 사용한다. 현재 CD에서는 CI 커밋의 Compose 파일과 `deploy-ec2.sh`를 SCP로 EC2에 전달한다.
 
 ## 4. 이미지 버전 지정
 
@@ -75,6 +76,8 @@ MYSHELF_IMAGE=ghcr.io/pickylemon/myshelf:sha-4e651623b2f855f81d4a023d365632358b0
 `MYSHELF_IMAGE`는 Compose가 이미지를 선택할 때 사용하는 변수이며, 그 자체가 Spring Boot 컨테이너 내부로 자동 전달되지는 않는다. 비밀번호 등은 Compose 파일의 `environment`에 선언된 항목만 컨테이너에 전달된다.
 
 값 변경 후 별도의 `.env` 재적용 명령은 필요 없다. 다음 Compose 실행 시 새 값을 읽는다. 단, 이미 실행 중인 컨테이너에는 파일 변경만으로 값이 반영되지 않는다.
+
+현재 자동 배포에서는 전달받은 SHA로 이미지를 **먼저 Pull**한 뒤 `.env`의 `MYSHELF_IMAGE`만 갱신한다. `.env`는 단순 이력 파일이 아니라 Compose가 참조하는 **배포 대상 이미지 설정**이며, 성공 여부는 별도의 `.last-successful-image`와 `deployment-history.log`로 확인한다.
 
 ## 5. 비공개 GHCR 인증 (최초 또는 토큰 갱신 시)
 
@@ -164,20 +167,19 @@ curl -sS -o /dev/null -w 'HTTP %{http_code}\n' http://127.0.0.1:8080/v3/api-docs
 
 **주의:** `docker compose down -v`는 영속 데이터 볼륨을 제거할 수 있으므로 운영에서 문제 해결용으로 실행하지 않는다. `docker compose config`는 비밀값을 출력할 수 있으므로 가급적 `config --quiet`을 사용한다.
 
-## 9. CD 전환 시 자동화할 작업
+## 9. CD 자동화 적용 결과 (2026-11-13)
 
-1. CI가 정상 게시한 **커밋 SHA 태그**를 배포 입력으로 확정한다.
-2. 현재 커밋 버전의 Compose 파일 두 개를 EC2에 전달한다.
-3. EC2에 필요한 인증을 사용할 수 있는 상태인지 확인한다.
-4. 기존 비밀정보를 유지하면서 `MYSHELF_IMAGE`만 새 태그로 지정한다.
-5. `docker compose config --quiet`, `up -d`를 실행한다.
-6. 컨테이너 상태뿐 아니라 HTTP 응답도 확인하고 실패 시 작업을 실패 처리한다.
-7. 배포 실패 시 이전 태그로 복원할 절차와 운영 비밀정보 보호 방안을 별도로 설계한다.
+기존 수동 배포 절차 중 파일 전달·이미지 선택·Compose 실행·기본 HTTP 검증을 자동화했다. CI 성공 이벤트와 `head_sha`를 연결하는 방식은 [CD 전체 흐름](github-actions-cd.md#2-전체-흐름), 실행 번호·이미지 SHA·서버 확인 결과는 [최초 통합 검증 기록](github-actions-cd.md#7-실제-최초-통합-검증)에서 관리한다.
+
+자동 롤백은 아직 구현하지 않았다. `.env` 갱신 후 실패했을 때의 상태와 복구 판단은 [배포 실패 시 주의점](ec2-automated-deployment.md#7-실패와-복구-시-주의점)을 참고한다. 이 문서의 수동 명령 자체를 검증된 롤백 절차로 해석하지 않는다.
 
 ## 10. 관련 문서
 
 - [ADR 014 — 멀티 플랫폼 이미지 빌드](../../decisions/014-multi-platform-image-build.md)
 - [멀티 플랫폼 이미지와 CI 실행 원리](docker-multi-platform-ci.md)
 - [Docker Compose 파일 병합과 PostgreSQL 초기화 동작](docker-compose-merge-and-postgres-init.md)
+- [GitHub Actions CD 구축](github-actions-cd.md)
+- [OIDC와 AWS IAM 인증](github-oidc-aws-iam.md)
+- [EC2 자동 배포 스크립트](ec2-automated-deployment.md)
 - [Docker — docker login](https://docs.docker.com/reference/cli/docker/login/)
 - [GitHub — Container registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)

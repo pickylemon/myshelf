@@ -4,6 +4,7 @@
 - **작성일:** 2026-11-12
 - **관련 작업:** `infra/compose-env-separation`
 - **후속 작업:** `cd/ec2-deployment`
+- **후속 반영:** SSH 기반 EC2 CD를 main에 병합했다(PR #31, 2026-11-13). [현재 구성](../architecture/ci-cd.md#53-운영-배포-및-cd)과 [통합 검증 기록](../learning/infrastructure/github-actions-cd.md#7-실제-최초-통합-검증)을 참고한다. 아래 결정·검증 기록은 환경 분리 당시 기준이다.
 - **대상:** MyShelf의 Spring Boot, PostgreSQL, Redis 실행 구성
 
 ## 1. 배경

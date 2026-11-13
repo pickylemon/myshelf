@@ -1,7 +1,7 @@
 # GitHub Actions 기반 CI 구축 및 검증
 
 > 학습일: 2026-10-21
-> 최종 수정일: 2026-11-06
+> 최종 수정일: 2026-11-13
 > 대상: MyShelf GitHub Actions CI 구축, Docker 이미지 빌드 검증 및 GHCR 게시
 > 관련 문서: [CI/CD 아키텍처](../../architecture/ci-cd.md)
 
@@ -25,7 +25,7 @@ MyShelf는 기존에 개발자가 로컬 환경에서 직접 Gradle 빌드와 �
 
 추가로 GHCR 이미지 게시 자동화를 구현하고, 실제 게시된 이미지를 로컬 환경으로 다운로드하여 Spring Boot 애플리케이션을 실행하는 데 성공했다.
 
-운영 서버 배포 및 CD 자동화는 별도 작업으로 진행한다.
+이후 별도의 CD 워크플로를 구축했고, 2026-11-13 `main` 병합을 계기로 CI 성공 → GHCR 게시 → EC2 자동 배포까지 검증했다. 상세 내용은 [GitHub Actions CD](github-actions-cd.md)에 정리한다.
 
 ## 2. CI와 GitHub Actions 기본 개념
 
@@ -416,13 +416,13 @@ Artifact의 보관 기간은 7일로 설정했다.
 - GHCR Private 이미지 인증 및 로컬 다운로드 성공
 - 게시된 이미지로 Spring Boot 실행 및 PostgreSQL 연동 성공
 - 회원가입 및 로그인 API 동작 확인
+- 2026-11-13 CI 성공 후 EC2 자동 배포 검증 완료 ([최초 통합 검증 기록](github-actions-cd.md#7-실제-최초-통합-검증))
 
 다음 항목은 후속 작업으로 진행한다.
 
-- GHCR 게시 및 실행 검증 과정의 학습 문서 작성
-- Jenkins Pipeline 기초 실습
-- 핵심 기능 개발 이후 운영 배포 및 CD 구축
-- 배포 이미지 Digest 관리, Health Check 및 롤백 전략 검토
+- CI 빌드 시간 분석 및 최적화
+- SSH 기반 CD에서 AWS SSM 기반 원격 실행으로 전환
+- 이미지 Digest 고정, 보다 엄격한 준비 상태 검사 및 롤백 절차 검토
 
 현재 CI의 실제 구성은 [CI/CD 아키텍처](../../architecture/ci-cd.md)를 기준으로 관리한다.
 
@@ -681,14 +681,13 @@ Spring Boot 로그에서 DB 연결과 Flyway 마이그레이션이 성공했음�
 
 따라서 이번 검증은 이미지 생성 가능 여부뿐 아니라 **게시된 이미지의 실제 실행 가능성과 기본 API 동작**까지 확인한 것이다.
 
-다만 아직 다음 항목은 검증하지 않았다.
+당시(2026-10)의 로컬 검증에서는 다음 항목이 범위 밖이었다.
 
 - 의도적인 Docker 이미지 빌드 실패 감지
-- 실제 운영 서버에서의 실행
-- 자동 배포 및 배포 후 Health Check
-- 배포 실패 시 롤백
+- EC2 운영 서버 실행 및 자동 배포
+- 배포 후 HTTP 응답 검증과 실패 시 롤백
 
-이 중 Docker 이미지 빌드 실패 감지 검증은 향후 필요에 따라 추가할 수 있으며, 운영 배포와 롤백은 CD 구축 단계에서 다룬다.
+이후 **EC2 운영 배포와 자동 배포 후 기본 HTTP 검증은 2026-11-13 완료**했다. 의도적인 이미지 빌드 실패 검증과 자동 롤백은 아직 수행하지 않았다.
 
 GHCR 인증, Private 이미지 Pull 및 `docker run` 실행 과정의 상세 학습은 [GitHub Container Registry 학습 문서](github-container-registry.md)에 정리한다.
 
@@ -734,18 +733,19 @@ PR 생성 및 업데이트
  PostgreSQL 및 API 검증
 ```
 
-여기까지는 GitHub Actions의 CI와 이미지 게시 자동화, 그리고 로컬에서의 수동 실행 검증에 해당한다.
+위 다이어그램은 **초기 CI/GHCR 구축 당시의 로컬 실행 검증 흐름**이다. 이후 SSH 기반 CD를 추가해 다음과 같이 운영 배포까지 연결했다.
 
-실제 운영 서버에 GHCR 이미지를 자동 배포하는 CD는 아직 구현하지 않았다.
+```text
+main PR 병합 → CI(build-and-test → publish-image) → GHCR
+                                  ↓ CI 성공 완료 이벤트(workflow_run)
+                       CD(main Push의 CI 성공만 허용)
+                                  ↓ CI 커밋 SHA 전달
+                       AWS OIDC 인증 → 임시 SSH 접근 허용
+                                  ↓
+                       EC2 이미지 Pull → Compose 실행 → HTTP 검증
+```
 
-향후 CD 구축 시 목표 흐름은 다음과 같다.
-
-1. GHCR에 게시된 이미지 선택
-2. 이미지 Digest를 기준으로 배포할 이미지 식별
-3. 실제 배포 서버에서 동일한 이미지 다운로드
-4. 운영 환경변수 및 DB 연결 구성
-5. 컨테이너 실행 및 Health Check
-6. 배포 실패 시 복구 또는 이전 이미지로 롤백
+현재는 `sha-<커밋 SHA>` 태그로 CI와 배포 버전을 연결하며, Digest 고정 및 자동 롤백은 추후 개선 대상이다. 실행 결과는 [최초 통합 검증 기록](github-actions-cd.md#7-실제-최초-통합-검증), 상세 절차는 [EC2 자동 배포](ec2-automated-deployment.md)에 정리한다.
 
 여기서 중요한 원칙은 **Build Once, Deploy Many**이다.
 
@@ -755,4 +755,4 @@ PR 생성 및 업데이트
 
 이번 로컬 실행 검증에서는 `main`에서 GHCR에 게시한 이미지를 그대로 다운로드하여 사용했다.
 
-향후 실제 CD를 구축할 때도 검증한 이미지의 Digest를 기준으로 동일한 이미지를 배포하는 방향으로 구성할 예정이다.
+현재 CD는 CI에서 게시한 이미지의 커밋 SHA 태그를 전달받아 배포한다. 이미지 Digest로 고정하는 방식은 아직 적용하지 않았으며, 추후 개선 과제로 남겼다.
