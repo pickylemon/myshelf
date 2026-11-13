@@ -50,6 +50,35 @@ jobs:
           RUNNER_IP=$(curl -4 -fsS https://checkip.amazonaws.com)
           echo "Runner public IP: $RUNNER_IP"
           echo "ip=$RUNNER_IP" >> "$GITHUB_OUTPUT"
+          
+
+      - name: Allow runner SSH access
+        id: allow-ssh
+        env:
+          SG_ID: ${{ vars.EC2_SG_ID }}
+          RUNNER_IP: ${{ steps.runner-ip.outputs.ip }}
+        run: |
+          RULE_ID=$(aws ec2 authorize-security-group-ingress \
+            --group-id "$SG_ID" \
+            --protocol tcp \
+            --port 22 \
+            --cidr "$RUNNER_IP/32" \
+            --query 'SecurityGroupRules[0].SecurityGroupRuleId' \
+            --output text)
+
+          echo "rule_id=$RULE_ID" >> "$GITHUB_OUTPUT"
+          echo "Temporary SSH rule created: $RULE_ID"
+
+      - name: Remove runner SSH access
+        if: ${{ always() && steps.allow-ssh.outputs.rule_id != '' }}
+        env:
+          SG_ID: ${{ vars.EC2_SG_ID }}
+          RULE_ID: ${{ steps.allow-ssh.outputs.rule_id }}
+        run: |
+          aws ec2 revoke-security-group-ingress \
+            --group-id "$SG_ID" \
+            --security-group-rule-ids "$RULE_ID"
+
 
       - name: Verify AWS identity
         run: aws sts get-caller-identity
