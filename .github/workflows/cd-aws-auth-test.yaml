@@ -69,6 +69,29 @@ jobs:
           echo "rule_id=$RULE_ID" >> "$GITHUB_OUTPUT"
           echo "Temporary SSH rule created: $RULE_ID"
 
+      - name: Test EC2 SSH connection
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_PRIVATE_KEY }}
+          EC2_HOST_KEY: ${{ vars.EC2_SSH_HOST_KEY }}
+          EC2_HOST: ${{ vars.EC2_HOST }}
+          EC2_USER: ${{ vars.EC2_USER }}
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/myshelf_cd
+          chmod 600 ~/.ssh/myshelf_cd
+
+          printf '%s %s\n' "$EC2_HOST" "$EC2_HOST_KEY" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+          ssh -i ~/.ssh/myshelf_cd \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o BatchMode=yes \
+            -o ConnectTimeout=10 \
+            "$EC2_USER@$EC2_HOST" 'whoami'
+
       - name: Remove runner SSH access
         if: ${{ always() && steps.allow-ssh.outputs.rule_id != '' }}
         env:
