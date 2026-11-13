@@ -44,5 +44,12 @@ jobs:
           aws-region: ap-northeast-2
           role-to-assume: ${{ vars.AWS_CD_ROLE_ARN }}
 
+      - name: Get runner public IP
+        id: runner-ip
+        run: |
+          RUNNER_IP=$(curl -4 -fsS https://checkip.amazonaws.com)
+          echo "Runner public IP: $RUNNER_IP"
+          echo "ip=$RUNNER_IP" >> "$GITHUB_OUTPUT"
+
       - name: Verify AWS identity
         run: aws sts get-caller-identity
