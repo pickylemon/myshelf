@@ -120,7 +120,7 @@ jobs:
           EC2_USER: ${{ vars.EC2_USER }}
 
           # 테스트 단계: 기존에 게시된 이미지 SHA를 사용한다.
-          DEPLOY_SHA: 4e651623b2f855f81d4a023d365632358b0d484b
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
 
         run: |
           ssh -i ~/.ssh/myshelf_cd \
