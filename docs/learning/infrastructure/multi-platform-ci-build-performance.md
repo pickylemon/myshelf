@@ -1,18 +1,19 @@
-# 멀티 플랫폼 CI 이미지 빌드 지연과 개선 검토
+# 멀티 플랫폼 CI 이미지 빌드 지연과 개선 검토·검증
 
-- **유형:** Learning / 성능 개선 후보 기록
+- **유형:** Learning / 성능 개선 과정 기록
 - **작성일:** 2026-11-12
-- **상태:** 관찰 및 개선안 정리 (최적화 미적용, 개선 효과 미측정)
+- **최종 갱신일:** 2026-11-14
+- **상태:** 최적화 검증 완료 — PR·main CI 성능 개선, CD 성공 및 EC2 실행 이미지 SHA 일치 확인
 - **적용 프로젝트:** MyShelf
-- **관련 문서:** [멀티 플랫폼 이미지와 GitHub Actions CI](docker-multi-platform-ci.md)
+- **관련 문서:** [멀티 플랫폼 이미지와 GitHub Actions CI](docker-multi-platform-ci.md), [빌드 지연 트러블슈팅](../../troubleshooting/ci-multi-platform-build-slow.md)
 
 ## 1. 관찰한 현상
 
-기존 CI에 `linux/arm64`를 추가한 뒤 PR의 `verify-image` 작업이 로컬 Gradle 빌드보다 훨씬 오래 걸렸다. `Verify Docker image build` 단계가 수 분 이상 지속되는 것이 관찰되었다.
+2026-11-12 첫 분석 당시, CI에 `linux/arm64`를 추가한 뒤 PR의 `verify-image` 작업이 로컬 Gradle 빌드보다 훨씬 오래 걸렸다. `Verify Docker image build` 단계가 수 분 이상 지속되는 것이 관찰되었다.
 
-개발자가 확인한 전체 CI 실행 시간은 약 13분이었다. 다만 **개별 작업·Docker 빌드 단계의 정확한 소요 시간과 캐시 적중률은 아직 분석하지 않았다.** 아래 원인은 Dockerfile 및 CI 구조로부터 추정한 것이며, 실제 로그로 확인해야 한다. 전체 시간을 ARM64 빌드 시간으로 해석하지 않는다.
+당시에는 **개별 Docker 빌드 단계의 시간과 전체 CI 실행 시간을 측정하지 않았다.** 이후 2026-11-14에 PR Job별 시간을 측정하고 Dockerfile 변경 효과를 검증했다. 결과는 아래 8절에 기록한다.
 
-## 2. 현재 CI의 빌드 경로
+## 2. 최적화 전 CI의 빌드 경로
 
 ```text
 PR 발생
@@ -47,7 +48,7 @@ GitHub Actions의 일반적인 AMD64 러너에서 ARM64 이미지를 만들 때 
 
 **주의:** 장시간 실행이 곧 오류를 의미하지는 않지만, 단순히 'QEMU 때문'이라고 확정하기 전에 실행 로그의 단계별 시간을 확인해야 한다.
 
-## 4. 권장 개선 우선순위
+## 4. 당시 검토한 개선 우선순위
 
 | 순위 | 개선 방안 | 기대 효과 | 유의점 | 현 상태 |
 |---|---|---|---|---|
@@ -111,13 +112,12 @@ with:
 
 단, 소스가 자주 변경되어 `bootJar` 레이어가 무효화되거나 ARM64 에뮬레이션이 계속 실행된다면 캐시만으로 근본 원인을 해결하기 어렵다. 캐시의 범위, 권한, 크기 및 플랫폼별 적중 여부를 로그로 확인해야 한다.
 
-## 7. 검증 계획
+## 7. 검증 계획 (작성 당시)
 
 아래 표에 개선 전후 같은 조건의 시간을 기록한다. 미측정 항목에 임의 수치를 채우지 않는다.
 
 | 측정 항목 | 현재(기준선) | 변경 후 | 비교 조건 |
 |---|---|---|---|
-| 전체 CI 실행 시간 | 약 13분 (개발자 관찰값) | 미측정 | 동일 실행의 작업별 시간·캐시 상태 확인 필요 |
 | `build-and-test` 총 시간 | 미측정 | 미측정 | 동일 커밋 또는 유사한 변경 |
 | `verify-image` 총 시간 | 수 분 이상 지연 관찰, 정확한 값 미측정 | 미측정 | 캐시 상태 기록 |
 | AMD64 이미지 빌드 시간 | 미측정 | 미측정 | Buildx 로그 기준 |
@@ -133,13 +133,71 @@ with:
 - ARM64 EC2 Pull, 컨테이너 상태, HTTP 응답까지 재검증한다.
 - 빌드 분 단위 비용은 GitHub 저장소의 공개 여부·러너·요금제에 따라 달라질 수 있으므로 별도로 확인한다.
 
-## 8. 다음 작업으로 이관
+## 8. 최적화 적용 및 실제 측정 (2026-11-14)
 
-이번 멀티 플랫폼 지원 작업에서는 **호환성 확보를 우선**하고, 빌드 최적화는 측정 결과를 바탕으로 후속 이슈에서 처리한다.
+### 8.1 적용한 변경
 
-추천 이슈 제목: `ci: 멀티 플랫폼 이미지 빌드 시간 최적화`
+당초 5절에서 검토한 'JAR를 CI 아티팩트로 한 번만 만들고 전달'하는 방식 대신, 더 작은 변경인 **Dockerfile Builder Stage의 빌드 플랫폼 고정**을 먼저 적용했다.
 
-## 9. 참고 자료
+```diff
+-FROM eclipse-temurin:21-jdk AS builder
++FROM --platform=$BUILDPLATFORM eclipse-temurin:21-jdk AS builder
+```
+
+- `BUILDPLATFORM`은 BuildKit이 빌드를 수행하는 머신의 플랫폼이다. MyShelf의 GitHub-hosted AMD64 Runner에서는 Builder Stage가 AMD64 JDK로 실행된다.
+- 최종 Runtime Stage의 `FROM eclipse-temurin:21-jre`에는 플랫폼을 고정하지 않아 대상 플랫폼별 JRE 이미지가 선택된다.
+- `ci.yaml`의 QEMU 설정과 `platforms: linux/amd64,linux/arm64`는 유지했다.
+- **ARM64용 이미지 생성을 생략하는 변경이 아니다.** Builder의 Gradle 실행에 필요한 에뮬레이션 비용을 줄이는 변경이다.
+- BuildKit의 단계 재사용 여부에 따라 실제 JAR 빌드 횟수는 달라질 수 있다. 'Gradle을 무조건 한 번만 실행한다'는 의미는 아니다.
+
+### 8.2 실행 시간 비교
+
+| CI | 이벤트 | `build-and-test` | `verify-image` | 전체 |
+|---|---|---:|---:|---:|
+| #47 (변경 전) | PR | 1분 45초 | **10분 45초** | 12분 37초 |
+| #49 Attempt 1 | PR | 1분 51초 | **2분 0초** | 3분 58초 |
+| #49 Attempt 2 | PR 재실행 | 1분 54초 | **1분 37초** | 3분 37초 |
+
+변경 전 #47 대비 `verify-image`는 **8분 45초~9분 8초(약 81~85%) 단축**됐다. 두 번의 변경 후 실행에서 모두 성공해 개선 효과가 반복 관찰됐다.
+
+이는 QEMU에서 Gradle을 실행하던 비용이 컸다는 가설을 뒷받침하지만, 플랫폼별 개별 빌드 단계의 시간을 따로 측정하지 않았으므로 단축분 전체를 QEMU 비용이라고 단정하지 않는다. `main`의 `publish-image` 측정 결과는 아래에 별도로 기록한다.
+
+#### main 이미지 게시 최종 측정
+
+아래 수치와 CD 성공 여부는 개발자가 제공한 CI #50 확인 결과를 기준으로 한다. 문서 갱신 과정에서 GitHub Actions나 EC2를 직접 재검증하지 않았다.
+
+| 항목 | 변경 전 CI #48 | 변경 후 CI #50 | 변화 |
+|---|---:|---:|---:|
+| `build-and-test` | 1분 42초 | 1분 58초 | 16초 증가 |
+| `publish-image` | 8분 21초 | 1분 50초 | 6분 31초, 약 78% 단축 |
+| 전체 CI | 10분 9초 | 3분 53초 | 6분 16초, 약 62% 단축 |
+
+PR뿐 아니라 main 이미지 게시에서도 개선 효과를 확인했다. AMD64·ARM64 빌드와 기존 검증 단계를 유지했고, 이후 CD 자동 배포도 성공했다. `build-and-test`는 빨라지지 않았으며, 이미지 빌드·게시 단계의 단축이 전체 시간 개선으로 이어졌다.
+
+참고로 변경 전 CI #46의 전체 시간은 16분 58초였다. 변경 전 실행끼리도 시간 차이가 있으므로 #46은 참고값으로 두고, 위 비교에서는 #48을 기준선으로 사용한다. 플랫폼별 단계 시간을 분리 측정하지 않았으므로 단축분 전체를 QEMU 비용으로 단정하지 않는다.
+
+### 8.3 캐시와 Docker 빌드 컨텍스트
+
+- 현재 `ci.yaml`의 Docker 빌드 Job에는 외부 캐시용 `cache-from`/`cache-to` 설정이 없다. 이번 성능 개선은 캐시 추가 없이 관찰됐다.
+- `.dockerignore`에는 `docs/`, `*.md`, `.gradle`, `build` 등이 있어 문서 변경이 Docker 빌드 컨텍스트에 포함되지 않는다.
+- `build-and-test`의 Gradle 캐시가 별도 Docker Builder Stage로 자동 이전되지는 않는다.
+- Dockerfile의 `COPY . .` 때문에 Java 소스가 변경되면 이후 `RUN ... bootJar` 레이어 캐시 재사용이 어려울 수 있다. 캐시 도입은 별도 측정 후 판단한다.
+
+### 8.4 검증 경계
+
+PR의 AMD64·ARM64 이미지 빌드와 main의 GHCR 이미지 게시에서 성능 개선을 확인했고, CD 자동 배포도 성공했다. CI 성능 최적화의 효과 검증은 완료한 것으로 판단한다.
+
+개발자가 EC2 실행 이미지 태그와 CI #50의 대상 커밋 SHA가 일치하는 것까지 확인했다. PR 검증부터 main 이미지 게시·CD 배포·실행 이미지 확인까지 이번 최적화의 검증을 완료했다. 이는 전체 비즈니스 API의 운영 검증을 뜻하지 않는다.
+
+자세한 문제·조치 기록: [QEMU 기반 Gradle 빌드 지연](../../troubleshooting/ci-multi-platform-build-slow.md)
+
+## 9. 후속 작업
+
+2026-11-14에 Dockerfile Builder Stage의 플랫폼 선택만 변경하여 PR과 main 이미지 빌드·게시 시간을 단축했다. 상세 결과는 8절을 참고한다.
+
+이번 CI 성능 최적화 작업은 마무리했다. 외부 Buildx 캐시나 JAR 아티팩트 재사용 구조는 당장 추가하지 않는다. 현재 약 4분의 전체 CI 시간을 기준으로 운영하다가 다시 병목이 확인되면 검토한다. 이후 인프라 작업은 AWS SSM 전환으로 이어간다.
+
+## 10. 참고 자료
 
 - [Docker — Multi-platform builds](https://docs.docker.com/build/building/multi-platform/)
 - [Docker — Multi-platform image with GitHub Actions](https://docs.docker.com/build/ci/github-actions/multi-platform/)
