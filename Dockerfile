@@ -1,5 +1,5 @@
 # Stage 1: Spring Boot JAR 빌드
-FROM eclipse-temurin:21-jdk AS builder
+FROM --platform=$BUILDPLATFORM eclipse-temurin:21-jdk AS builder
 
 WORKDIR /workspace
 
