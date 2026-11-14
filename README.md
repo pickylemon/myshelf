@@ -23,11 +23,11 @@
 - UserBook 등록·재사용, ShelfBook 연결 및 ISBN별 메타데이터 캐시
 - 서재별 도서 목록 조회·메모 수정, 독서 상태 변경 및 ShelfBook 다건 삭제
 
-Feature 5는 구현·테스트를 완료하고 PR 리뷰 대기 중입니다. 로컬 검증 범위와 개발자가 확인한 Draft PR CI 통과 결과는 [Feature 5 검증 기록](docs/planning/feature-5-book-management.md#6-구현-단계-및-완료-기준)에 정리합니다.
+Feature 5는 구현·테스트 후 main에 병합했습니다(PR #25). 이후 멀티 플랫폼 이미지 게시와 SSH 기반 EC2 자동 배포를 구현했습니다. 기능 검증은 [Feature 5 기록](docs/planning/feature-5-book-management.md#6-구현-단계-및-완료-기준), 자동 배포 결과는 [CD 검증 기록](docs/learning/infrastructure/github-actions-cd.md#7-실제-최초-통합-검증)에 정리합니다.
 
 **이후 범위**
 
-- Feature 5 PR 리뷰·병합 후 우선 작업: CD·배포 및 포트폴리오 1차 정리
+- 포트폴리오 1차 정리 및 운영 보완: SSM 전환, 상태 점검·롤백·외부 공개 구성
 - Feature 6: 전체 도서·상세 조회, Shelf 내 순서 변경 및 검색 응답 보완
 - Feature 7: 문장 수집·필사
 - 후속 검토: 독서 통계, 일반 조회 캐싱, Kafka 기반 비동기 처리 및 AI Agent
@@ -54,8 +54,11 @@ Feature 5는 구현·테스트를 완료하고 PR 리뷰 대기 중입니다. �
 - Redis (검색 세션 저장·ISBN별 도서 메타데이터 캐시)
 - Docker
 - Docker Compose
+- GitHub Actions CI·CD, GHCR 멀티 플랫폼 이미지, AWS EC2 ARM64 배포
 
 Redis는 검색 진행 상태와 ISBN별 도서 메타데이터를 별도 키로 저장합니다. 일반 조회 캐시와 Kafka는 후속 검토 대상입니다.
+
+현재 CD는 main Push의 CI 성공 후 해당 커밋 SHA 이미지를 EC2에 배포하고 기본 HTTP 응답을 확인합니다. 외부 공개·무중단 배포·자동 롤백은 아직 포함하지 않습니다. [CI/CD 아키텍처](docs/architecture/ci-cd.md)를 참고합니다.
 
 ### Test
 

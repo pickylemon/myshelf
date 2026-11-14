@@ -1,9 +1,9 @@
 # MyShelf CI/CD 아키텍처
 
-> 상태: CI 구축 완료 / Branch Ruleset 적용 / GHCR 이미지 게시 및 실행 검증 완료 / CD 미구현
+> 상태: CI·멀티 플랫폼 이미지 게시 및 SSH 기반 EC2 CD 구현 완료 / 배포 후 기본 HTTP 응답 검증 완료
 > 작성일: 2026-10-21
-> 최종 수정일: 2026-11-06
-> 범위: GitHub Actions 기반 CI, Docker 이미지 빌드·게시 및 향후 CD 확장
+> 최종 수정일: 2026-11-13
+> 범위: GitHub Actions 기반 CI, AMD64·ARM64 이미지 빌드·게시, OIDC·SSH 기반 EC2 자동 배포
 
 ## 1. 개요
 
@@ -18,7 +18,7 @@ MyShelf는 GitHub Actions를 이용하여 코드 변경사항에 대한 빌드, 
 - PostgreSQL 통합 테스트의 독립성과 재현성 확보
 - Redis 세션·메타데이터 캐시 테스트를 위한 독립 실행 환경 준비
 - Docker 이미지 빌드 검증 및 Registry 게시 자동화
-- 향후 CD 자동화 기반 마련
+- CI가 게시한 커밋 SHA 이미지의 EC2 자동 배포와 기본 HTTP 응답 확인
 
 현재 Gradle 빌드·테스트 자동화와 PR 단계의 Docker 이미지 빌드 검증을 완료했다.
 
@@ -26,7 +26,7 @@ MyShelf는 GitHub Actions를 이용하여 코드 변경사항에 대한 빌드, 
 
 게시된 이미지를 로컬 환경으로 다운로드하고 PostgreSQL과 연결하여 Spring Boot 애플리케이션을 실행했다. 회원가입 및 로그인 API 요청도 정상적으로 처리되는 것을 확인했다.
 
-Jenkins 실습과 운영 배포 자동화는 후속 작업으로 진행한다.
+현재는 `main` Push의 CI가 이미지 게시까지 성공하면 별도 CD 워크플로가 EC2에 배포한다. 구현은 HEAD의 `.github/workflows/cd.yaml`과 `scripts/deploy-ec2.sh`를 기준으로 한다. 실행 번호·배포 SHA·서버 확인 결과는 [최초 통합 검증 기록](../learning/infrastructure/github-actions-cd.md#7-실제-최초-통합-검증)에 모아 둔다. Jenkins 실습, SSM 전환, 자동 롤백은 후속 과제다.
 
 ## 2. GitHub Actions CI 구성
 
@@ -44,7 +44,7 @@ CI Workflow는 `.github/workflows/ci.yaml`에 정의한다.
 | Redis | `redis:7-alpine`, Runner의 `localhost:6379` |
 | Spring 프로필 | `test` |
 | Gradle 빌드 명령어 | `bash ./gradlew clean build --no-daemon` |
-| Docker 이미지 빌드 | Docker Buildx |
+| Docker 이미지 빌드 | QEMU + Docker Buildx, `linux/amd64,linux/arm64` |
 | Workflow 기본 권한 | `contents: read` |
 
 Java, Gradle, PostgreSQL·Redis 및 Spring 프로필 설정은 `build-and-test` Job에서 사용한다. Redis 통합 테스트는 테스트 클래스의 `test,redis` 프로필로 DB 1을 사용한다. Docker 이미지 관련 Job은 별도의 Runner에서 기존 멀티스테이지 Dockerfile을 이용해 빌드한다.
@@ -122,8 +122,8 @@ pull_request → main
         | 성공 시
         v
    verify-image
-  - Docker Buildx 준비
-  - 멀티스테이지 Docker 이미지 빌드
+  - QEMU 및 Docker Buildx 준비
+  - AMD64·ARM64 멀티스테이지 Docker 이미지 빌드
   - Registry 게시 없음
         |
         v
@@ -141,9 +141,9 @@ build-and-test
       | 성공 시
       v
 publish-image
-  - Docker Buildx 준비
+  - QEMU 및 Docker Buildx 준비
   - GHCR 인증
-  - 멀티스테이지 Docker 이미지 빌드
+  - AMD64·ARM64 멀티스테이지 Docker 이미지 빌드
   - 커밋 SHA 기반 태그 지정
   - GHCR 이미지 게시
 ```
@@ -242,7 +242,7 @@ PR #16에서는 `publish-image`가 Skipped 처리되었으며, 병합 이후 `ma
 
 추가로 회원가입 및 로그인 API를 호출하여 애플리케이션이 실제 HTTP 요청을 처리하고 PostgreSQL과 연동하는 것까지 검증했다.
 
-다만 Docker 이미지 빌드 실패 상황을 의도적으로 발생시키는 검증과 실제 운영 서버 배포 및 CD 검증은 아직 수행하지 않았다.
+초기 검증 당시에는 Docker 이미지 빌드 실패 유도와 운영 서버 배포·CD 검증이 범위 밖이었다. 이후 SSH 기반 EC2 CD와 기본 HTTP 응답은 검증했다. 의도적인 이미지 빌드 실패 검증과 자동 롤백은 아직 수행하지 않았다.
 
 CI 구축 과정은 [GitHub Actions CI 학습 문서](../learning/infrastructure/github-actions-ci.md)에 기록하며, GHCR 게시 및 실행 과정은 별도의 학습 문서에서 정리한다.
 
@@ -261,7 +261,7 @@ GitHub Actions는 해당 파일을 `test-reports` Artifact로 업로드한다.
 
 이를 통해 테스트 실패 이후에도 생성된 리포트를 확인할 수 있도록 구성했다.
 
-## 5. 이미지 게시 구성 및 향후 확장
+## 5. 이미지 게시와 EC2 자동 배포
 
 ### 5.1 GHCR 이미지 게시 자동화
 
@@ -273,7 +273,7 @@ GitHub Actions에 `publish-image` Job을 추가하여 GHCR 이미지 게시 자�
 - `build-and-test` 성공 이후 실행
 - `GITHUB_TOKEN`으로 GHCR 인증
 - `packages: write` 권한을 게시 Job에만 부여
-- Docker Buildx로 기존 멀티스테이지 Dockerfile 빌드
+- QEMU·Docker Buildx로 기존 멀티스테이지 Dockerfile의 AMD64·ARM64 이미지 빌드
 - 커밋 SHA 기반 이미지 태그 사용
 - `push: true`로 GHCR에 이미지 게시
 
@@ -309,9 +309,7 @@ PR #16 병합 이후 `main` Push 이벤트로 `publish-image`가 실행되었으
 
 이를 통해 **CI에서 빌드하고 GHCR에 게시한 이미지를 로컬에서 다시 빌드하지 않고도 실제 애플리케이션 실행에 사용할 수 있음**을 확인했다.
 
-현재까지 검증한 범위는 이미지 게시 및 로컬 실행이며, 실제 운영 서버에 대한 자동 배포는 포함하지 않는다.
-
-향후 CD 구축 시에는 GHCR에 게시된 동일한 이미지 Digest를 기준으로 배포하고, 배포 후 Health Check 및 실패 복구 절차를 검토할 예정이다.
+위 내용은 초기 GHCR 게시·로컬 실행 검증 기록이다. 이후 EC2 자동 배포를 구현했다. 현재는 CI의 Git 커밋 SHA 태그를 전달해 배포 버전을 연결하며, 이미지 Digest 고정은 적용하지 않았다.
 
 ### 5.2 Jenkins 학습
 
@@ -321,25 +319,47 @@ Jenkinsfile, 빌드 자동화, 실행 환경 및 관리 방식의 차이를 학�
 
 ### 5.3 운영 배포 및 CD
 
-실제 운영 배포 자동화는 핵심 기능 개발 이후 진행한다.
+CD Workflow는 `.github/workflows/cd.yaml`, EC2 실행 절차는 `scripts/deploy-ec2.sh`에 정의한다. AWS EC2 ARM64 `t4g.small`의 `/opt/myshelf`에서 공통·운영 Compose 파일을 병합해 실행한다.
 
-주요 검토 대상은 다음과 같다.
+| 항목 | 현재 구현 |
+|---|---|
+| 시작 이벤트 | 이름이 `CI`인 워크플로의 `workflow_run: completed` |
+| 배포 조건 | 선행 CI 성공, `push` 이벤트, `main` 브랜치, 원본 저장소 `pickylemon/myshelf` |
+| 배포 버전 | `workflow_run.head_sha`로 파일 Checkout 및 `sha-<SHA>` 이미지 선택 |
+| AWS 인증 | GitHub OIDC로 IAM Role의 임시 자격 증명 획득 |
+| EC2 접근 | Runner IPv4 `/32`의 SSH 규칙 임시 추가, 호스트 키 검증 후 SSH·SCP |
+| 전달 파일 | `compose.yaml`, `compose.prod.yaml`, `deploy-ec2.sh`. 운영 `.env`는 전송하지 않음 |
+| 동시 배포 | 고정 concurrency 그룹, `cancel-in-progress: false`. 엄격한 순차 큐·최신 커밋 우선 보장은 아님 |
+| 정리 | `always()` 조건으로 생성한 보안 그룹 Rule ID 삭제 시도 |
 
-- 배포 대상 서버 및 실행 환경
-- 운영 PostgreSQL 및 환경변수 관리
-- GHCR 이미지 기반 배포
-- 배포 후 Health Check
-- 배포 실패 시 복구 및 롤백
+```text
+main Push → CI(build-and-test → publish-image) → GHCR
+                        ↓ CI 성공 완료 이벤트
+CD: CI head_sha Checkout → OIDC → 임시 SSH 허용 → 배포 파일 전송
+                        ↓
+EC2: 이미지 사전 Pull → .env 이미지 항목 갱신 → Compose up
+                        ↓
+실행 이미지 태그·HTTP 확인 → 성공 이미지·배포 이력 기록
+                        ↓
+Runner: 임시 SSH 규칙 제거
+```
 
-초기에는 단일 서버 기반의 단순한 구성을 우선 검토하며, Kubernetes 도입을 전제로 하지 않는다.
+운영 `.env`의 비밀정보는 EC2에서 관리하며, 배포 스크립트는 `MYSHELF_IMAGE`만 갱신한다. `.env` 갱신 이후 실패해도 자동 복원하지 않는다. 마지막 검증 성공 이미지는 `.last-successful-image`, 시도·성공·실패는 `deployment-history.log`에 남긴다.
+
+현재 HTTP 검사는 EC2 내부의 `http://127.0.0.1:8080/v3/api-docs`를 사용한다. 앱 포트는 루프백에만 바인딩하며 PostgreSQL·Redis 호스트 포트는 게시하지 않는다. 이 확인은 외부 공개, 전체 비즈니스 API, 데이터 복구 또는 무중단 배포를 보장하지 않는다.
+
+SSM 전환, 전용 Health Check, Digest 고정, 롤백, HTTPS·리버스 프록시 및 운영 모니터링은 후속 범위다. 상세 원리와 단계별 코드는 [CD 학습](../learning/infrastructure/github-actions-cd.md), [OIDC·IAM](../learning/infrastructure/github-oidc-aws-iam.md), [EC2 배포 스크립트](../learning/infrastructure/ec2-automated-deployment.md)를 참고한다.
 
 ## 6. 관련 문서
 
 - CI 구현: `.github/workflows/ci.yaml`
+- CD 구현: `.github/workflows/cd.yaml`, `scripts/deploy-ec2.sh`
 - Docker 이미지 빌드 구성: `Dockerfile`, `.dockerignore`
 - CI 개념 및 검증 과정: [GitHub Actions CI 학습](../learning/infrastructure/github-actions-ci.md)
 - 개발 일정 및 후속 작업: [로드맵](../planning/roadmap.md)
 - GHCR 이미지 게시 자동화: GitHub Issue #15
 - GHCR 이미지 게시 및 실행 검증: [GitHub Container Registry 학습](../learning/infrastructure/github-container-registry.md)
+- CD 검증 기록: [GitHub Actions CD](../learning/infrastructure/github-actions-cd.md#7-실제-최초-통합-검증)
+- 배포 장애 진단: [CD 트러블슈팅](../troubleshooting/github-actions-cd-troubleshooting.md)
 
 구체적인 구현 작업과 검증 결과는 GitHub Issues에서 관리한다.

@@ -24,7 +24,7 @@ MyShelf는 기술적 구조보다 서비스의 목적과 도메인 요구사항�
 
 ## 주요 도메인
 
-현재 구현된 기능 패키지는 다음과 같다. Feature 5의 도서 검색·등록·관리·Shelf별 목록은 구현과 회귀 테스트를 완료했으며 PR 리뷰 대기 상태다. 실행 결과와 후속 범위는 [Feature 5 검증 기록](../planning/feature-5-book-management.md#6-구현-단계-및-완료-기준)을 참고한다.
+현재 구현된 기능 패키지는 다음과 같다. Feature 5의 도서 검색·등록·관리·Shelf별 목록은 구현과 회귀 테스트를 완료하고 main에 병합했다(PR #25). 실행 결과와 후속 범위는 [Feature 5 검증 기록](../planning/feature-5-book-management.md#6-구현-단계-및-완료-기준)을 참고한다.
 
 ```text
 user
@@ -256,11 +256,11 @@ Redis 조회 캐시
 Kafka
 → 비동기 도메인 이벤트 처리
 
-운영 배포 / CD
-→ 검증된 이미지 배포 및 운영 환경 구성
+운영 고도화
+→ SSM 전환, 전용 상태 점검·롤백·모니터링
 ```
 
-Docker Compose 기반 로컬 실행과 PostgreSQL·Flyway, GitHub Actions CI 및 GHCR 이미지 게시 기반은 이미 구성했다. 현재 브랜치의 CI 결과와 운영 배포 완료 여부는 별도로 확인한다.
+Docker Compose 기반 로컬 실행과 PostgreSQL·Flyway, GitHub Actions CI 및 GHCR 멀티 플랫폼 이미지 게시, SSH 기반 EC2 CD를 구성했다. CD는 main Push의 CI 성공 후 같은 커밋의 이미지를 배포하고 기본 HTTP 응답을 확인한다. 현재 구조와 검증 한계는 [CI/CD 아키텍처](ci-cd.md#53-운영-배포-및-cd)를 참고한다. 외부 공개·무중단 교체·자동 롤백은 아직 구현하지 않았다.
 
 Redis 검색 세션 저장소와 ISBN별 메타데이터 캐시는 구현했다. 후속 작업과 검증 현황은 [로드맵](../planning/roadmap.md#기능별-진행-상태)에서 관리한다.
 
