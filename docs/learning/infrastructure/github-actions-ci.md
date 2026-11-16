@@ -1,8 +1,8 @@
 # GitHub Actions 기반 CI 구축 및 검증
 
 > 학습일: 2026-10-21
-> 최종 수정일: 2026-11-13
-> 대상: MyShelf GitHub Actions CI 구축, Docker 이미지 빌드 검증 및 GHCR 게시
+> 최종 수정일: 2026-11-16
+> 대상: MyShelf CI 구축, 멀티 플랫폼 이미지·S3 아티팩트 게시 및 재사용
 > 관련 문서: [CI/CD 아키텍처](../../architecture/ci-cd.md)
 
 ## 1. 학습 목적
@@ -47,24 +47,25 @@ CI는 **미리 정의한 검증을 일관되게 반복 실행**하며, 변경사
 |---|---|---|
 | Workflow | 자동화 작업의 전체 정의 | `ci.yaml` |
 | Event | Workflow 실행 계기 | PR, Push, 수동 실행 |
-| Job | Runner에서 실행되는 작업 단위 | `build-and-test`, `verify-image`, `publish-image` |
+| Job | Runner에서 실행되는 작업 단위 | `build-and-test`, `verify-image`, `publish-image`, `publish-artifacts-to-s3` |
 | Runner | Job을 실행하는 컴퓨팅 환경 | `ubuntu-latest` |
 | Step | Job 내부의 개별 작업 | Checkout, Gradle 빌드 등 |
 | Action | 재사용 가능한 자동화 작업 | `actions/checkout` 등 |
 | Service | Job에서 사용하는 서비스 컨테이너 | PostgreSQL·Redis |
-| Artifact | 실행 중 생성된 결과 파일 | HTML·XML 테스트 리포트 |
+| Artifact | 검증·배포에 사용하는 결과 파일 | HTML·XML 테스트 리포트, S3 배포 파일 묶음 |
 
 Workflow는 `.github/workflows/ci.yaml`에 YAML로 정의하고 Git으로 버전 관리한다.
 
 이를 통해 CI 구성을 코드와 함께 검토하고 변경 이력을 추적할 수 있다.
 
-현재 MyShelf Workflow는 세 Job으로 구성된다.
+현재 MyShelf Workflow는 네 Job으로 구성된다.
 
 - `build-and-test`: Gradle 빌드, Spotless 검사 및 PostgreSQL·Redis 통합 테스트
 - `verify-image`: PR에서 Docker 이미지 빌드 가능 여부 검증
-- `publish-image`: `main` Push 이후 Docker 이미지 빌드 및 GHCR 게시
+- `publish-image`: `main` Push 이후 동일 SHA 이미지 확인·재사용 또는 빌드·GHCR 게시
+- `publish-artifacts-to-s3`: 이미지 게시 성공 후 동일 커밋의 배포 파일을 S3에 게시·재사용
 
-각 Job은 별도의 Runner에서 실행되며, 이미지 관련 Job들은 `needs: build-and-test`로 실행 의존성을 정의한다.
+각 Job은 별도 Runner에서 실행된다. 이미지 관련 Job은 `needs: build-and-test`, S3 게시 Job은 `needs: publish-image`로 의존성을 정의한다.
 
 다만 `verify-image`와 `publish-image`는 서로 의존하지 않는다. 실행 이벤트에 따라 둘 중 하나가 실행되도록 구성했다.
 
@@ -416,12 +417,13 @@ Artifact의 보관 기간은 7일로 설정했다.
 - GHCR Private 이미지 인증 및 로컬 다운로드 성공
 - 게시된 이미지로 Spring Boot 실행 및 PostgreSQL 연동 성공
 - 회원가입 및 로그인 API 동작 확인
-- 2026-11-13 CI 성공 후 EC2 자동 배포 검증 완료 ([최초 통합 검증 기록](github-actions-cd.md#7-실제-최초-통합-검증))
+- 2026-11-13 CI 성공 후 SSH 기반 EC2 자동 배포 검증 완료 ([최초 통합 검증 기록](github-actions-cd.md#7-실제-최초-통합-검증))
+- 2026-11-16 main CI #52에서 이미지·S3 게시 성공, 최초 이관 후 SSM CD 재실행 성공 ([전환 기록](github-actions-cd.md#8-ssm-전환-및-실제-배포-검증))
 
 다음 항목은 후속 작업으로 진행한다.
 
 - CI 빌드 시간 분석 및 최적화
-- SSH 기반 CD에서 AWS SSM 기반 원격 실행으로 전환
+- S3·SSM 배포의 실제 실패 분기·CI 재실행 시 재사용 검증
 - 이미지 Digest 고정, 보다 엄격한 준비 상태 검사 및 롤백 절차 검토
 
 현재 CI의 실제 구성은 [CI/CD 아키텍처](../../architecture/ci-cd.md)를 기준으로 관리한다.
@@ -473,7 +475,7 @@ Docker는 애플리케이션 실행에 필요한 런타임과 파일을 이미�
 
 ### 10.3 `verify-image` Job의 동작
 
-현재 `verify-image`는 다음과 같이 구성했다.
+아래는 초기 이미지 검증 Job의 핵심 설정이다. 이후 QEMU와 AMD64·ARM64 platforms 설정을 추가했다. 최신 전체 YAML은 `.github/workflows/ci.yaml`을 기준으로 한다.
 
 ```yaml
 verify-image:
@@ -562,7 +564,7 @@ MyShelf는 다음과 같이 역할을 구분한다.
 
 따라서 PR에서는 이미지 생성 가능 여부를 확인하고, `main`에서는 게시할 이미지를 생성하도록 설계했다.
 
-`publish-image` Job은 다음과 같이 구현했다.
+아래는 초기 GHCR 게시 구현이다. 현재는 QEMU·멀티 플랫폼 설정과 기존 SHA 이미지 재사용·동시 게시 제한도 추가되어 있다. 최신 게시 흐름은 11절과 실제 YAML을 참고한다.
 
 ```yaml
 publish-image:
@@ -733,19 +735,17 @@ PR 생성 및 업데이트
  PostgreSQL 및 API 검증
 ```
 
-위 다이어그램은 **초기 CI/GHCR 구축 당시의 로컬 실행 검증 흐름**이다. 이후 SSH 기반 CD를 추가해 다음과 같이 운영 배포까지 연결했다.
+위 다이어그램은 **초기 CI/GHCR 구축 당시의 로컬 실행 검증 흐름**이다. 이후 SSH 기반 CD를 거쳐 현재 S3·SSM 방식으로 전환했다.
 
 ```text
-main PR 병합 → CI(build-and-test → publish-image) → GHCR
-                                  ↓ CI 성공 완료 이벤트(workflow_run)
-                       CD(main Push의 CI 성공만 허용)
-                                  ↓ CI 커밋 SHA 전달
-                       AWS OIDC 인증 → 임시 SSH 접근 허용
-                                  ↓
-                       EC2 이미지 Pull → Compose 실행 → HTTP 검증
+main PR 병합 → CI 테스트 → GHCR 이미지 게시·재사용 → S3 아티팩트 게시·재사용
+                                                       ↓ CI 성공
+CD: OIDC 인증 → SSM 명령 → EC2 다운로드·검증 → current 전환
+                                                       ↓
+                                이미지 Pull → Compose 실행 → HTTP 확인
 ```
 
-현재는 `sha-<커밋 SHA>` 태그로 CI와 배포 버전을 연결하며, Digest 고정 및 자동 롤백은 추후 개선 대상이다. 실행 결과는 [최초 통합 검증 기록](github-actions-cd.md#7-실제-최초-통합-검증), 상세 절차는 [EC2 자동 배포](ec2-automated-deployment.md)에 정리한다.
+현재는 `sha-<커밋 SHA>` 이미지 태그와 같은 SHA의 S3 경로로 버전을 연결한다. Digest 고정은 후속 과제다. 이전 릴리스 복구 시도는 구현했지만 실제 실패 복구는 검증하지 않았다. [SSM 전환 기록](github-actions-cd.md#8-ssm-전환-및-실제-배포-검증)을 참고한다.
 
 여기서 중요한 원칙은 **Build Once, Deploy Many**이다.
 
@@ -756,3 +756,29 @@ main PR 병합 → CI(build-and-test → publish-image) → GHCR
 이번 로컬 실행 검증에서는 `main`에서 GHCR에 게시한 이미지를 그대로 다운로드하여 사용했다.
 
 현재 CD는 CI에서 게시한 이미지의 커밋 SHA 태그를 전달받아 배포한다. 이미지 Digest로 고정하는 방식은 아직 적용하지 않았으며, 추후 개선 과제로 남겼다.
+
+## 11. CI의 배포 결과물 게시 책임 확장
+
+### 11.1. S3 게시도 CI가 담당하는 이유
+
+CI는 검증한 커밋의 이미지를 GHCR에, 배포 파일을 S3에 준비한다. CD는 CI 성공 후 해당 SHA의 결과물을 운영 환경에 적용한다. S3 업로드가 실패하면 CI가 실패하고 CD의 배포 Job은 진행하지 않는다. 이는 MyShelf에서 선택한 책임 구분이며 모든 프로젝트의 필수 규칙은 아니다.
+
+| 이벤트 | 실행되는 작업 |
+| --- | --- |
+| PR | build-and-test → verify-image. GHCR·S3 게시 없음 |
+| main Push | build-and-test → publish-image → publish-artifacts-to-s3 |
+| 수동 workflow_dispatch | 현재는 build-and-test만 실행 |
+
+### 11.2. 동일 SHA 재실행과 권한
+
+- GHCR에 이미지가 있으면 AMD64·ARM64가 모두 있는지 확인하고 재사용한다. 명시적인 미존재일 때만 빌드하며, 인증·통신 실패나 아키텍처 누락은 실패시킨다.
+- 같은 SHA의 이미지 게시 Job은 concurrency로 제한한다. 태그 자체를 레지스트리 수준에서 불변으로 만드는 기능은 아니다.
+- S3 아티팩트는 Compose 두 개와 준비·활성화·배포 스크립트, 총 다섯 파일이다. 운영 비밀정보와 bootstrap 스크립트는 제외한다.
+- tar의 파일 순서·소유자·mtime과 gzip 헤더를 고정한다. 조건부 업로드가 기존 객체를 감지하면 다운로드한 압축 파일의 SHA-256을 비교하여 같으면 재사용하고 다르면 실패한다.
+- 기본 권한은 contents 읽기다. 이미지 게시 Job에만 packages 쓰기, S3 게시 Job에만 OIDC용 id-token 쓰기를 부여한다. S3 기존 객체 확인에는 AWS 읽기 권한도 필요하다.
+
+### 11.3. 실제 확인한 결과
+
+PR CI #51에서는 테스트·멀티 플랫폼 빌드만 실행했다. PR #36 병합 후 main CI #52에서는 이미지·S3 게시까지 성공했다. 이후 최초 이관을 거쳐 CD 재실행도 성공했다.
+
+이 결과는 **CI 전체 재실행의 재사용·충돌 거부·업로드 실패 전파를 모두 실증한 것은 아니다**. 해당 분기에는 구현과 로컬 모의 검증이 있으며, 실제 환경 검증은 별도로 남긴다. 최종 배포 결과는 [CD 검증 기록](github-actions-cd.md#8-ssm-전환-및-실제-배포-검증)에서 관리한다.

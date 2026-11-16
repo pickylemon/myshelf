@@ -1,12 +1,14 @@
 # GitHub Actions 기반 EC2 자동 배포(CD)
 
-> 기록 기준: 2026-11-13 · MyShelf SSH 기반 CD 1차 구축 완료
+> 기록 기준: 2026-11-16 · SSH 기반 최초 구축 이후 S3·SSM 전환 및 정상 배포 확인
 >
-> 관련 구현: `.github/workflows/ci.yaml`, `.github/workflows/cd.yaml`, `scripts/deploy-ec2.sh`, `compose.yaml`, `compose.prod.yaml`
+> 관련 구현: `.github/workflows/ci.yaml`, `.github/workflows/cd.yaml`, `scripts/deploy-ec2.sh`, `scripts/prepare-release-ec2.sh`, `scripts/activate-release-ec2.sh`, `scripts/bootstrap-release-ec2.sh`, `compose.yaml`, `compose.prod.yaml`
 
 ## 1. 목표와 범위
 
 MyShelf는 기존에 CI에서 Java 애플리케이션을 검증하고 GHCR에 Docker 이미지를 게시한 뒤 EC2에서 수동으로 이미지를 교체했다. 이 단계에서는 **`main` 브랜치의 CI 성공을 조건으로, CI가 게시한 바로 그 커밋의 이미지를 EC2에 자동 배포**하도록 연결했다.
+
+2026-11-16에는 파일 전달을 S3로, 원격 실행을 SSM으로 전환했다. 현재 흐름은 2~6절, SSH 방식의 최초 검증은 7절, SSM 전환 결과는 8절에 정리한다.
 
 이 문서는 *어느 이벤트가 배포를 시작하고 어떤 이미지 버전을 선택하는가*에 집중한다. AWS 권한 인증은 [GitHub OIDC와 AWS IAM](github-oidc-aws-iam.md), EC2에서의 실제 작업은 [EC2 자동 배포 스크립트](ec2-automated-deployment.md)를 참고한다.
 
@@ -14,9 +16,13 @@ MyShelf는 기존에 CI에서 Java 애플리케이션을 검증하고 GHCR에 Do
 
 | 구성요소 | 책임 |
 | --- | --- |
-| `ci.yaml` | 빌드·테스트, 멀티 아키텍처 이미지 빌드, GHCR 게시 |
+| `ci.yaml` | 빌드·테스트, 이미지 게시·재사용, 동일 SHA의 S3 배포 파일 게시·재사용 |
 | GHCR | `sha-<Git 커밋 SHA>` 태그 이미지 보관 |
-| `cd.yaml` | CI 결과 확인, AWS 인증, EC2 접속, 파일 전송, 원격 스크립트 실행 및 정리 |
+| S3 | 같은 커밋의 Compose 파일 두 개와 준비·활성화·배포 스크립트 보관 |
+| `cd.yaml` | CI 결과 확인, OIDC 인증, SSM 명령 전송 및 실제 종료 결과 확인 |
+| `prepare-release-ec2.sh` | 압축 파일 검증, SHA별 릴리스 준비·재사용 |
+| `activate-release-ec2.sh` | current 링크 전환, 배포 호출, 실패 시 이전 릴리스 복구 시도 |
+| `bootstrap-release-ec2.sh` | 기존 운영 파일의 최초 이관. 매 배포용 S3 묶음에서는 제외 |
 | `deploy-ec2.sh` | 이미지 Pull, `.env` 갱신, Compose 실행, HTTP 확인, 이력 기록 |
 | EC2 | `app`·`postgres`·`redis` 컨테이너 실행 |
 
@@ -24,18 +30,18 @@ MyShelf는 기존에 CI에서 Java 애플리케이션을 검증하고 GHCR에 Do
 
 ```mermaid
 flowchart TD
-    A[PR을 main에 병합] --> B[CI: 빌드 및 테스트]
-    B --> C[CI: AMD64 / ARM64 이미지 게시]
-    C --> D{CI 워크플로 성공?}
-    D -- 아니오 --> X[배포 작업 건너뜀]
-    D -- 예 --> E[CD workflow_run]
-    E --> F[OIDC로 AWS 역할 인수]
-    F --> G[Runner IP에만 SSH 임시 허용]
-    G --> H[SSH 연결 / SCP 파일 전송]
-    H --> I[EC2: deploy-ec2.sh 커밋 SHA]
-    I --> J[이미지 사전 Pull → .env 갱신 → Compose]
-    J --> K[HTTP 확인 및 배포 이력]
-    K --> L[임시 SSH 규칙 제거]
+    A[main Push] --> B[CI: 빌드 및 테스트]
+    B --> C[CI: GHCR 이미지 게시 또는 재사용]
+    C --> D[CI: S3 배포 파일 게시 또는 재사용]
+    D --> E{CI 워크플로 성공?}
+    E -- 아니오 --> X[배포 작업 건너뜀]
+    E -- 예 --> F[CD: OIDC 인증 및 SSM 명령]
+    F --> G[EC2: 잠금 획득 및 S3 다운로드]
+    G --> H[릴리스 검증 및 준비]
+    H --> I[current 전환 및 배포 스크립트 실행]
+    I --> J[이미지 Pull 및 Compose 실행]
+    J --> K[실행 이미지 및 HTTP 확인]
+    K --> L[배포 이력 및 SSM 종료 결과 확인]
 ```
 
 `CI → CD`는 코드상의 직접 함수 호출이 아니라, GitHub Actions의 **워크플로 완료 이벤트**를 이용한 연결이다.
@@ -91,22 +97,13 @@ ghcr.io/pickylemon/myshelf:sha-<40자리 Git 커밋 SHA>
 
 CD는 선행 CI의 커밋 SHA를 배포 스크립트에 전달한다.
 
-```yaml
-- name: Checkout deployment revision
-  uses: actions/checkout@v7
-  with:
-    ref: ${{ github.event.workflow_run.head_sha }}
+CD는 다음 값으로 SSM 명령의 인자를 구성한다. 현재 CD는 Git Checkout이나 SCP를 수행하지 않는다.
 
-# Deploy MyShelf 단계의 환경변수
+```yaml
 DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
 ```
 
-GitHub Actions Runner에서 SSH를 사용해 다음과 같이 EC2에 인자를 전달한다.
-
-```bash
-ssh ... "$EC2_USER@$EC2_HOST" \
-  "bash /opt/myshelf/deploy-ec2.sh '$DEPLOY_SHA'"
-```
+이 SHA로 S3의 `releases/<SHA>/deploy.tar.gz`를 선택하고, EC2에 준비된 릴리스의 활성화 스크립트에 같은 값을 전달한다. 활성화 스크립트가 배포 스크립트를 한 번 호출한다.
 
 EC2의 스크립트는 첫 번째 인자를 읽는다.
 
@@ -126,19 +123,19 @@ NEW_IMAGE="ghcr.io/pickylemon/myshelf:sha-${DEPLOY_SHA}"
 
 ## 5. CD 워크플로 실행 단계
 
-| 순서 | GitHub Actions 단계 | 목적 |
+| 순서 | 실행 위치 | 작업 |
 | --- | --- | --- |
-| 1 | Checkout deployment revision | CI 커밋과 동일한 배포 파일 확보 |
-| 2 | Configure AWS credentials | GitHub OIDC로 AWS 임시 자격 증명 획득 |
-| 3 | Get runner public IP | GitHub-hosted Runner의 공인 IPv4 조회 |
-| 4 | Allow runner SSH access | Runner IP `/32`에 22번 포트 임시 개방 |
-| 5 | Configure SSH | 개인 키·호스트 키 검증 설정 |
-| 6 | Test EC2 SSH connection | 원격 접속 검증 |
-| 7 | Upload deployment files | Compose 파일 및 스크립트를 SCP 전송 |
-| 8 | Deploy MyShelf | 커밋 SHA를 인자로 원격 배포 수행 |
-| 9 | Remove runner SSH access | 임시 보안 그룹 규칙 삭제 |
+| 1 | GitHub Actions | OIDC로 AWS 임시 자격 증명 획득 |
+| 2 | GitHub Actions | SHA·버킷·실행 사용자를 검증하고 SSM 명령 전송 |
+| 3 | EC2 | ubuntu 사용자로 배포 잠금 획득 및 S3 다운로드 |
+| 4 | EC2 | 준비 스크립트가 파일·Compose 설정 검증 후 릴리스 준비 |
+| 5 | EC2 | 활성화 스크립트가 current를 전환하고 배포 스크립트 호출 |
+| 6 | EC2 | 이미지 Pull·환경변수 갱신·Compose 실행·HTTP 확인 |
+| 7 | GitHub Actions | SSM 실제 종료 상태와 표준 출력·오류 확인 |
 
-`concurrency` 그룹을 사용해 동일 EC2에 두 배포가 **동시에 실행되는 위험**을 줄인다. 단, GitHub Actions의 동시성 그룹은 엄격한 순차 큐나 '항상 최신 커밋만 배포'를 보장하지 않는다. 더 복잡한 동시 배포 요구가 생기면 별도 보완이 필요하다.
+SSM 요청 접수 성공과 배포 성공은 다르다. `Pending`·`InProgress`·`Delayed`·`Cancelling`이면 기다리고, `Success`이면 성공, `Failed`·`Cancelled`·`TimedOut`이면 실패 처리한다. 결과 대기 초과도 실패로 처리한다.
+
+GitHub Actions의 concurrency와 EC2의 `flock` 잠금으로 중복 배포를 제한한다. 이는 엄격한 커밋 순서나 최신 커밋 우선 배포를 보장하지는 않는다. Runner가 기다리기를 중단해도 원격 작업이 즉시 종료된다고 간주하지 않는다.
 
 ## 6. 배포 성공의 의미
 
@@ -149,7 +146,7 @@ NEW_IMAGE="ghcr.io/pickylemon/myshelf:sha-${DEPLOY_SHA}"
 3. 실행 중인 `app` 컨테이너의 이미지 태그가 목표 태그와 일치
 4. `http://127.0.0.1:8080/v3/api-docs` HTTP 확인 성공
 5. 배포 성공 이력 기록
-6. 임시 SSH 보안 그룹 규칙 삭제 성공
+6. SSM 원격 실행의 최종 성공 상태 확인
 
 이 검증은 **기본 배포 확인**이지 전체 비즈니스 API, 데이터 영속성, 성능, 장애 자동 복구까지 보장하지는 않는다.
 
@@ -168,11 +165,31 @@ NEW_IMAGE="ghcr.io/pickylemon/myshelf:sha-${DEPLOY_SHA}"
 
 이 절은 개발자가 확인한 최초 통합 검증 기록을 모은 곳이다. EC2 내부의 상태·이력 확인 명령과 검증 한계는 [EC2 자동 배포](ec2-automated-deployment.md#6-운영-환경-검증-명령)를 참고한다. 파일과 커밋 이력으로 확인할 수 있는 구현 상태와 실제 서버에서 관찰한 결과는 구분한다.
 
-## 8. 후속 범위
+## 8. SSM 전환 및 실제 배포 검증
 
-- CI 실행 시간 개선: **미구현**. 기존 CI의 실행 시간과 단계별 병목을 분석한 뒤 별도 작업으로 진행.
-- AWS Systems Manager(SSM) 전환: **미구현**. SSH/SCP 및 임시 보안 그룹 조작을 대체할 예정.
-- 자동 롤백·전용 Health Check·운영 메트릭: **미구현**. 운영 고도화 범위로 분리.
+2026-11-16, PR #36을 main에 병합하여 S3·SSM 방식으로 전환했다. 아래는 개발자가 제공한 화면·EC2 출력과 성공 확인을 근거로 한 기록이다.
+
+| 단계 | 확인한 결과 |
+| --- | --- |
+| PR CI #51 | build-and-test·verify-image 성공. 게시 작업은 생략 |
+| main Push CI #52 | build-and-test·publish-image·publish-artifacts-to-s3 성공 |
+| 배포 대상 커밋 | `c869188` (화면에 표시된 단축 SHA) |
+| 최초 CD | S3 다운로드·릴리스 준비 성공 후 `Run bootstrap first`로 실패 |
+| 최초 이관 | 기존 이미지 SHA `8acdf393d996d1f6b716b037eff953296632c358`의 릴리스를 생성하고 current 연결 |
+| 실패한 CD 재실행 | 개발자가 성공 확인. CI 재실행 없이 진행 |
+
+원인은 기존 운영 파일을 새 릴리스 구조로 옮기기 전에 CD를 시작한 것이다. bootstrap을 EC2에 별도로 전달·실행한 뒤 실패한 CD만 재실행했다. [최초 이관 장애와 해결 과정](../../troubleshooting/github-actions-cd-troubleshooting.md#7-ssm-첫-배포-실패-error-run-bootstrap-first)에 실제 명령·로그와 개념을 정리했다.
+
+정상 CD 성공은 코드에 정의된 실행 이미지·기본 HTTP 확인까지 통과했다는 의미다. 이번 기록에 CD 실행 번호·전체 배포 SHA·별도 curl 출력은 제공되지 않았으므로 추가 결과를 만들어 기록하지 않는다. SSH 최초 검증 때 관찰한 DB·Redis 유지 결과를 이번 배포의 검증 결과로 옮기지 않는다.
+
+같은 SHA의 **CD 재실행**과 **CI 전체 재실행**은 구분한다. 이번에는 이미 준비된 EC2 릴리스를 사용하는 CD 재실행을 확인했다. GHCR 이미지·S3 아티팩트의 CI 재실행 재사용, 손상 파일 거부, 업로드 실패 전파, 실제 자동 복구는 별도 검증이 필요하다.
+
+## 9. 후속 범위
+
+- CI 실행 시간의 추가 개선: 단계별 병목을 측정하고 검토한다.
+- 이전 릴리스 자동 복구: 코드는 구현했으며 실제 실패·복구 시나리오는 별도 검증한다. DB 마이그레이션은 복구하지 않는다.
+- 전용 Health Check·운영 메트릭·HTTPS 및 외부 공개: 후속 운영 고도화로 둔다.
+- SSH 관련 Secrets·인바운드 규칙·불필요한 IAM 권한 정리: 실제 정리 여부를 확인한다. 워크플로의 SSH 제거만으로 AWS 설정 정리를 완료한 것으로 보지 않는다.
 
 ## 참고 자료
 

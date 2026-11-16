@@ -257,10 +257,10 @@ Kafka
 → 비동기 도메인 이벤트 처리
 
 운영 고도화
-→ SSM 전환, 전용 상태 점검·롤백·모니터링
+→ 전용 상태 점검·실패 복구 검증·모니터링
 ```
 
-Docker Compose 기반 로컬 실행과 PostgreSQL·Flyway, GitHub Actions CI 및 GHCR 멀티 플랫폼 이미지 게시, SSH 기반 EC2 CD를 구성했다. CD는 main Push의 CI 성공 후 같은 커밋의 이미지를 배포하고 기본 HTTP 응답을 확인한다. 현재 구조와 검증 한계는 [CI/CD 아키텍처](ci-cd.md#53-운영-배포-및-cd)를 참고한다. 외부 공개·무중단 교체·자동 롤백은 아직 구현하지 않았다.
+Docker Compose 기반 로컬 실행과 PostgreSQL·Flyway, GitHub Actions CI 및 GHCR 멀티 플랫폼 이미지 게시, S3·SSM 기반 EC2 CD를 구성했다. CI가 같은 커밋의 이미지와 배포 파일을 게시하면 CD가 SSM으로 릴리스를 준비·전환하고 기본 HTTP 응답을 확인한다. 현재 구조와 검증 한계는 [CI/CD 아키텍처](ci-cd.md#53-운영-배포-및-cd)를 참고한다. 이전 릴리스 자동 복구 시도는 구현했지만 실제 실패 복구는 아직 별도 검증이 필요하다. 외부 공개·무중단 교체는 구현하지 않았다.
 
 Redis 검색 세션 저장소와 ISBN별 메타데이터 캐시는 구현했다. 후속 작업과 검증 현황은 [로드맵](../planning/roadmap.md#기능별-진행-상태)에서 관리한다.
 
