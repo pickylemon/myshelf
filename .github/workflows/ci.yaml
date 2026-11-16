@@ -1,4 +1,3 @@
-
 name: CI
 
 on:
@@ -16,11 +15,9 @@ permissions:
 jobs:
   build-and-test:
     runs-on: ubuntu-latest
-
     env:
       SPRING_PROFILES_ACTIVE: test
       DB_PASSWORD: ci_test_password
-
     services:
       postgres:
         image: postgres:17
@@ -35,7 +32,6 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
-
       redis:
         image: redis:7-alpine
         ports:
@@ -45,25 +41,20 @@ jobs:
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-
       - name: Set up JDK 21
         uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '21'
-
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6
         with:
           cache-provider: basic
-
       - name: Build and test
         run: bash ./gradlew clean build --no-daemon
-
       - name: Upload test reports
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
@@ -76,21 +67,16 @@ jobs:
           retention-days: 7
 
   verify-image:
-    name: verify-image
     needs: build-and-test
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
       - name: Verify Docker image build
         uses: docker/build-push-action@v6
         with:
@@ -100,37 +86,155 @@ jobs:
           tags: myshelf:ci
 
   publish-image:
-    name: publish-image
     needs: build-and-test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
-
+    # 같은 SHA의 CI가 겹쳐도 이미지 존재 확인과 게시를 순차 수행한다.
+    concurrency:
+      group: ghcr-publish-${{ github.repository }}-${{ github.sha }}
+      cancel-in-progress: false
     permissions:
       contents: read
       packages: write
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v7
-
-      # 추가: ARM64 빌드를 위한 에뮬레이션 환경
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v4
-
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Check existing SHA image
+        id: existing-image
+        env:
+          IMAGE: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          if docker buildx imagetools inspect "$IMAGE" --raw \
+            > "$RUNNER_TEMP/image-manifest.json" 2> "$RUNNER_TEMP/image-inspect.err"; then
+            # 재실행 시 두 아키텍처를 포함한 기존 이미지를 재사용한다.
+            python3 - "$RUNNER_TEMP/image-manifest.json" <<'PY'
+          import json
+          import sys
 
+          with open(sys.argv[1], encoding='utf-8') as file:
+              manifest = json.load(file)
+          platforms = {
+              (item.get('platform', {}).get('os'), item.get('platform', {}).get('architecture'))
+              for item in manifest.get('manifests', [])
+          }
+          if not {('linux', 'amd64'), ('linux', 'arm64')}.issubset(platforms):
+              raise SystemExit('ERROR: Existing SHA image lacks AMD64 or ARM64; refusing overwrite')
+          PY
+            echo 'exists=true' >> "$GITHUB_OUTPUT"
+            echo "Existing SHA image reused: $IMAGE"
+          else
+            # 명시적인 이미지 미존재만 최초 게시로 취급한다.
+            # 인증·네트워크 오류를 미존재로 간주하여 덮어쓰지 않는다.
+            python3 - "$RUNNER_TEMP/image-inspect.err" <<'PY'
+          import os
+          from pathlib import Path
+          import sys
+
+          error = Path(sys.argv[1]).read_text(encoding='utf-8')
+          lines = [line.removeprefix('ERROR: ').strip() for line in error.splitlines()]
+          if os.environ['IMAGE'] + ': not found' not in lines and 'manifest unknown' not in error.lower():
+              print(error, file=sys.stderr)
+              raise SystemExit(1)
+          PY
+            echo 'exists=false' >> "$GITHUB_OUTPUT"
+          fi
       - name: Build and push Docker image
+        if: steps.existing-image.outputs.exists == 'false'
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
           tags: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
+
+  # 이미지 및 배포 아티팩트 게시가 모두 성공해야 CI 전체가 성공한다.
+  publish-artifacts-to-s3:
+    needs: publish-image
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-region: ap-northeast-2
+          role-to-assume: ${{ vars.AWS_CD_ROLE_ARN }}
+      - name: Build reproducible deployment archive
+        run: |
+          set -Eeuo pipefail
+          # 파일 순서·소유자·mtime·gzip 헤더를 고정해 동일 커밋에서 같은 바이트를 생성한다.
+          SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)
+          tar --sort=name --mtime="@$SOURCE_DATE_EPOCH" \
+            --owner=0 --group=0 --numeric-owner --format=gnu \
+            -cf "$RUNNER_TEMP/deploy.tar" \
+            compose.yaml compose.prod.yaml \
+            -C scripts \
+            deploy-ec2.sh prepare-release-ec2.sh activate-release-ec2.sh
+          gzip -n -c "$RUNNER_TEMP/deploy.tar" > "$RUNNER_TEMP/deploy.tar.gz"
+          sha256sum "$RUNNER_TEMP/deploy.tar.gz"
+      - name: Publish immutable artifact to S3
+        env:
+          S3_DEPLOY_BUCKET: ${{ vars.S3_DEPLOY_BUCKET }}
+          DEPLOY_SHA: ${{ github.sha }}
+        run: |
+          set -Eeuo pipefail
+          FILE="$RUNNER_TEMP/deploy.tar.gz"
+          KEY="releases/$DEPLOY_SHA/deploy.tar.gz"
+          LOCAL_SHA=$(sha256sum "$FILE" | awk '{print $1}')
+
+          # 조건부 업로드로 기존 SHA 객체를 덮어쓰지 않는다.
+          for attempt in 1 2 3; do
+            if aws s3api put-object \
+              --bucket "$S3_DEPLOY_BUCKET" --key "$KEY" \
+              --body "$FILE" --if-none-match '*' \
+              --content-type application/gzip \
+              > "$RUNNER_TEMP/s3-put.json" 2> "$RUNNER_TEMP/s3-put.err"; then
+              echo "Published: s3://$S3_DEPLOY_BUCKET/$KEY"
+              exit 0
+            fi
+
+            if ! grep -Eq 'PreconditionFailed|ConditionalRequestConflict' "$RUNNER_TEMP/s3-put.err"; then
+              cat "$RUNNER_TEMP/s3-put.err" >&2
+              exit 1
+            fi
+
+            # 기존 객체가 있으면 실제 바이트의 SHA-256을 비교한다.
+            if aws s3api get-object --bucket "$S3_DEPLOY_BUCKET" \
+              --key "$KEY" "$RUNNER_TEMP/existing-deploy.tar.gz" \
+              > /dev/null 2> "$RUNNER_TEMP/s3-get.err"; then
+              REMOTE_SHA=$(sha256sum "$RUNNER_TEMP/existing-deploy.tar.gz" | awk '{print $1}')
+              if [[ "$LOCAL_SHA" == "$REMOTE_SHA" ]]; then
+                echo 'Identical artifact exists; reused.'
+                exit 0
+              fi
+              echo 'ERROR: Same SHA has different artifact bytes.' >&2
+              exit 1
+            fi
+
+            # 업로드 경합(409) 시 제한적으로 재시도한다.
+            if grep -q 'ConditionalRequestConflict' "$RUNNER_TEMP/s3-put.err"; then
+              sleep "$attempt"
+              continue
+            fi
+            cat "$RUNNER_TEMP/s3-get.err" >&2
+            exit 1
+          done
+          echo 'ERROR: Could not publish or verify S3 artifact.' >&2
+          exit 1
