@@ -66,7 +66,7 @@ no matching manifest for linux/arm64/v8 in the manifest list entries
 - ARM64 EC2에서 새 태그의 이미지 Pull과 컨테이너 실행에 성공했다.
 - EC2 내부에서 `GET /v3/api-docs` 요청에 `HTTP 200`을 확인했다.
 - 위 HTTP 응답은 **배포된 애플리케이션의 기본 응답 확인**이며, 도서 검색·등록 기능 전체 또는 DB·Redis의 모든 기능을 검증한 것은 아니다.
-- 현재 Dockerfile은 플랫폼별 이미지 빌드 중 Gradle `bootJar`를 실행하므로 QEMU에 의한 지연이 예상된다. 개선은 별도 과제로 관리한다.
+- 최초 멀티 플랫폼 구성에서는 ARM64 이미지의 Builder도 ARM64로 실행되어 QEMU에서 Gradle `bootJar`를 실행하는 비용이 있었다. 이후 Dockerfile에 `FROM --platform=$BUILDPLATFORM`을 적용해 Builder를 빌드 머신의 플랫폼으로 실행한다. Runtime은 대상 플랫폼별 JRE를 유지한다. [최적화 적용과 측정 결과](../learning/infrastructure/multi-platform-ci-build-performance.md#8-최적화-적용-및-실제-측정-2026-11-14)를 참고한다.
 - 기존에 빌드한 이미지는 AMD64만 지원하므로 ARM64 기반 EC2에서는 실행할 수 없다. 멀티 플랫폼 빌드 적용 후 새로 생성한 이미지를 사용해야 한다.
 
 ## 5. 관련 문서

@@ -118,9 +118,9 @@ UNIQUE (user_id, name)
 
 V2 마이그레이션은 이 제약조건을 추가하고 기존 `idx_shelves_user_id` 단일 인덱스를 제거한다. 생성된 복합 인덱스는 사용자별 이름 중복을 방지하며, 선행 컬럼인 `user_id`를 사용하는 Shelf 목록 조회에도 활용할 수 있다. 실제 인덱스 선택과 성능 개선 여부는 실행 계획으로 확인해야 한다.
 
-### Feature 5 검토: Shelf별 도서 조회
+### Feature 5 적용: Shelf별 도서 조회
 
-다음 도서 관련 예제는 기존 스키마의 활용 가능성을 설명한다. API 구현이나 성능 검증이 완료된 사례는 아니다.
+Shelf별 목록 API와 JOIN FETCH·기본 정렬은 Feature 5에서 구현했다. 아래는 기존 UNIQUE 인덱스의 활용 가능성을 설명하며, 실행 계획이나 성능 개선을 측정한 결과는 아니다. 실제 조회 구조는 [도서 관리 문서](../../architecture/book-management.md#5-목록-조회와-모델-변환)를 참고한다.
 
 ```sql
 UNIQUE (shelf_id, user_book_id)
@@ -130,7 +130,7 @@ UNIQUE (shelf_id, user_book_id)
 - Shelf별 도서 목록 조회에 활용 가능
 - UNIQUE 제약조건으로 생성된 인덱스 재사용 가능
 
-### Feature 5 검토: 내 서재 도서 검색
+### Feature 6 후속 검토: 내 서재 도서 검색
 
 다음은 사용자 조건과 문자열 포함 검색을 설명하기 위한 단순화한 SQL이다.
 

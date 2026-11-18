@@ -2,7 +2,7 @@
 
 ## 1. 학습 목표와 적용 범위
 
-> 본문의 구성과 검증 범위는 멀티스테이지 이미지 빌드 학습 단계 기준이다. 이후 완료한 Spring Boot 기동 및 PostgreSQL 연결 검증은 [통합 실행 문서](docker-compose-spring-boot-postgresql.md)를 참고한다.
+> 본문의 구성과 검증 범위는 멀티스테이지 이미지 빌드 학습 단계 기준이다. 이후 완료한 Spring Boot 기동 및 PostgreSQL 연결 검증은 [통합 실행 문서](docker-compose-spring-boot-postgresql.md)를 참고한다. 현재 Dockerfile은 Builder에 `--platform=$BUILDPLATFORM`을 추가했다. 변경 이유와 측정 결과는 [멀티 플랫폼 빌드 최적화](multi-platform-ci-build-performance.md#8-최적화-적용-및-실제-측정-2026-11-14)에 정리한다.
 
 MyShelf는 Java 21 기반 Spring Boot 애플리케이션이다. 로컬 PostgreSQL은 이미 Docker Compose로 실행하고 있으며, 이번 단계에서는 **애플리케이션 실행용 Docker 이미지를 만드는 과정**을 학습했다.
 
@@ -34,9 +34,9 @@ Your build is currently configured to use JVM 8.
 
 이번에는 로컬 JDK를 변경하는 대신 Docker 빌드 환경에 Java 21 JDK를 포함하는 **멀티스테이지 빌드**를 사용했다.
 
-## 3. 최종 Dockerfile
+## 3. 초기 학습 단계의 Dockerfile
 
-프로젝트 루트의 `Dockerfile`:
+당시 프로젝트 루트의 `Dockerfile`이다. 아래 예시는 초기 구성을 보존하며, 최신 파일은 [실제 Dockerfile](../../../Dockerfile)을 기준으로 한다.
 
 ```dockerfile
 # Stage 1: Spring Boot JAR 빌드

@@ -464,7 +464,7 @@ when(shelfRepositoryPort.existsByUserIdAndNameExcludingSelf(newShelf))
 
 하지만 예상한 Stubbing이 적용되지 않는 문제가 있었다.
 
-원인은 **테스트 코드에서 생성한 Shelf와 Service가 실제로 Port에 전달하는 Shelf가 서로 다른 객체**이기 때문이다.
+서로 다른 인스턴스를 인자로 전달할 때에는 해당 타입의 `equals()` 구현과 비교 대상 필드가 같은지 확인해야 한다. **현재 Shelf는 record이므로 인스턴스가 다르다는 사실만으로 Stubbing 불일치를 설명할 수 없다.**
 
 ### 10.2 Mockito의 인자 매칭 방식
 
@@ -490,17 +490,17 @@ shelfRepositoryPort.existsByUserIdAndNameExcludingSelf(shelf);
 
 Mockito는 일반적인 인자 매칭에서 `equals()`를 사용한다.
 
-현재 Shelf 도메인 객체는 `equals()`를 재정의하지 않았으므로, 서로 다른 인스턴스를 같은 객체로 판단하지 않는다.
+현재 Shelf는 record이며 모든 구성요소를 비교하는 `equals()`가 자동 생성된다. ID·이름·설명·소유자·생성/수정 시각이 모두 같다면 서로 다른 인스턴스도 동등하다. 아래처럼 네 인자 생성자를 사용하면 두 객체의 감사 시각은 모두 null이다.
 
 ```java
 Shelf a = new Shelf(id, name, description, userId);
 Shelf b = new Shelf(id, name, description, userId);
 
 a == b;       // false
-a.equals(b);  // false
+a.equals(b);  // true (모든 구성요소가 같은 경우)
 ```
 
-따라서 특정 객체를 인자로 지정한 Stubbing은 Service가 새로 생성한 객체와 매칭되지 않는다.
+따라서 모든 구성요소가 같은 Shelf를 인자로 지정하면 Service가 새 인스턴스를 만들어도 Stubbing이 매칭된다. 생성 시각 등 어느 구성요소라도 다르면 매칭되지 않는다. `equals()`를 재정의하지 않은 일반 클래스에서 인스턴스가 달라 매칭되지 않는 경우와 구분한다.
 
 ### 10.3 any()를 통한 Stubbing
 
@@ -514,7 +514,7 @@ when(shelfRepositoryPort.existsByUserIdAndNameExcludingSelf(
 
 `any(Shelf.class)`는 null이 아닌 모든 Shelf 객체를 매칭한다.
 
-이렇게 하면 Service가 새로운 객체를 생성하더라도 Mock이 `true`를 반환한다.
+이렇게 하면 Shelf의 구성요소 값과 관계없이 null이 아닌 인자에 대해 Mock이 `true`를 반환한다. record이기 때문에 반드시 `any()`가 필요한 것은 아니며, 이 테스트에서 인자의 구체적인 값보다 중복 상황을 설정하려는 목적일 때 선택한다.
 
 여기서 중요한 것은 **실제 Repository의 중복 검사 로직을 실행하는 것이 아니라, 중복된 이름이 존재한다는 상황을 가정한다는 점**이다.
 

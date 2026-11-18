@@ -1,5 +1,7 @@
 # Docker Compose 설정 병합과 독립적인 검증 환경 구성
 
+> 1~7절의 예시와 실행 결과는 초기화 SQL이 공통 `compose.yaml`에 있던 당시 기록이다. 현재 초기화 SQL 마운트는 `compose.override.yaml`에 있다. 현재 파일 조합으로 재현할 때는 [6.7절](#67-현재-compose-구성에서-재현하는-방법)을 따른다.
+
 ## 1. 학습 배경
 
 MyShelf에서는 로컬 개발 DB(`myshelf`)와 통합 테스트 DB(`myshelf_test`)를 PostgreSQL에서 분리하여 사용한다.
@@ -401,7 +403,7 @@ services:
     ports: !reset []
 ```
 
-기본 `compose.yaml`과 검증용 파일을 병합하면 다음과 같은 PostgreSQL 설정이 완성된다.
+당시 기본 `compose.yaml`과 검증용 파일을 병합하면 다음과 같은 PostgreSQL 설정이 완성됐다. 현재는 초기화 SQL 마운트를 포함하기 위해 `compose.override.yaml`도 명시해야 한다.
 
 - PostgreSQL 이미지: `postgres:17`
 - 데이터베이스 사용자: `myshelf`
@@ -565,6 +567,39 @@ Network myshelf-verify_default       Removed
 
 임시 `compose.verify.yaml` 파일은 검증 후 삭제 대상으로 두었으며, Git에 포함하지 않는다.
 
+### 6.7. 현재 Compose 구성에서 재현하는 방법
+
+현재 공통 파일에는 PostgreSQL Named Volume이 있고, 로컬 Override에는 초기화 SQL 마운트와 호스트 포트가 있다. `-f`를 지정하면 로컬 Override가 자동 포함되지 않으므로, 위 `compose.verify.yaml`을 준비한 뒤 **공통 → 로컬 → 검증용** 순서로 세 파일을 명시한다.
+
+```bash
+# 프로젝트 루트에서 실행. README의 로컬 필수 환경변수가 필요하다.
+docker compose -p myshelf-verify \
+  -f compose.yaml -f compose.override.yaml -f compose.verify.yaml \
+  config --quiet
+
+# 기존 개발 볼륨과 다른 신규 검증 볼륨을 사용하는지 먼저 확인한다.
+docker compose -p myshelf-verify \
+  -f compose.yaml -f compose.override.yaml -f compose.verify.yaml \
+  up -d --wait postgres
+
+docker compose -p myshelf-verify \
+  -f compose.yaml -f compose.override.yaml -f compose.verify.yaml \
+  exec postgres psql -U myshelf -d postgres \
+  -c "SELECT datname FROM pg_database WHERE datname IN ('myshelf', 'myshelf_test');"
+```
+
+검증용 파일의 `!reset`으로 PostgreSQL의 고정 컨테이너 이름과 호스트 포트를 제거한다. `up`의 대상은 `postgres`뿐이며 앱·Redis는 시작하지 않는다. `config --quiet`는 문법·필수 변수 확인이므로, 실제 병합 결과에서 초기화 SQL 마운트 유지와 이름·포트 제거도 별도로 확인한다. 전체 `config` 출력에는 비밀값이 포함될 수 있다.
+
+검증을 끝내고 **대상이 폐기 가능한 `myshelf-verify` 프로젝트와 볼륨인지 확인한 뒤에만** 아래 명령으로 정리한다. 기존 개발·운영 볼륨에 사용하지 않는다.
+
+```bash
+docker compose -p myshelf-verify \
+  -f compose.yaml -f compose.override.yaml -f compose.verify.yaml \
+  down -v
+```
+
+위 명령은 현재 파일 구성을 반영한 재현 절차이며, 이번 문서 정리에서 컨테이너 생성·DB 조회·삭제를 다시 실행한 결과는 아니다. 앞 절의 실제 출력은 당시 검증 기록으로 유지한다.
+
 ---
 
 ## 7. `-p`와 `-f`를 매번 지정해야 할까?
@@ -584,7 +619,7 @@ docker compose -p myshelf-verify \
 
 `-f`를 생략하면 이전에 사용한 설정 파일의 조합을 자동으로 기억하여 적용하지 않는다.
 
-기본 설정 파일만 읽으면 기존 `container_name`과 `ports`가 다시 설정에 포함되므로 충돌이 발생할 수 있다.
+기본 명령으로 실행하면 현재는 `compose.yaml`과 `compose.override.yaml`이 자동 병합되어 기존 `container_name`과 `ports`가 다시 포함될 수 있다. 검증용 파일을 포함한 조합을 유지해야 한다. 아래 비교 명령은 환경 분리 전 예시이며 현재 실행 조합은 6.7절을 따른다.
 
 ### 7.2. 이미 생성된 컨테이너 조회
 
@@ -634,7 +669,7 @@ docker compose -p myshelf-verify \
 
 프로젝트 이름과 서비스 이름은 동일하지만 적용할 설정은 다르다.
 
-두 번째 명령어에서는 검증용 설정이 제외되어 기존 컨테이너 이름과 호스트 포트 설정이 다시 적용된다.
+당시 두 번째 명령어에서는 검증용 설정이 제외되어 기존 컨테이너 이름과 호스트 포트 설정이 다시 적용됐다. 현재 공통 파일에는 PostgreSQL 호스트 포트와 초기화 SQL 마운트가 없고 앱의 이미지·빌드 설정도 환경별 파일에 있으므로, `-f compose.yaml`만으로 현재 로컬 구성을 재현할 수 없다.
 
 Compose는 새로운 설정과 실제 컨테이너 상태를 비교하여 컨테이너 재생성을 시도할 수 있다.
 

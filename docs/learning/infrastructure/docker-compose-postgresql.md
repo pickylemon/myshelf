@@ -299,7 +299,7 @@ CREATE DATABASE myshelf_test OWNER myshelf;
 
 #### Docker Compose 설정
 
-`compose.yaml`의 PostgreSQL 서비스에 다음 마운트를 추가했다.
+당시에는 `compose.yaml`의 PostgreSQL 서비스에 다음 마운트를 추가했다. 환경 분리 이후 Named Volume은 공통 파일에, 초기화 SQL Bind Mount는 `compose.override.yaml`에 두었다. 현재 로컬 기본 실행에서는 두 파일이 자동 병합된다.
 
 ```yaml
 volumes:
@@ -595,9 +595,8 @@ PostgreSQL 단독 실행 이후 다음 작업을 진행했다.
 - 개발 DB와 통합 테스트 DB 분리 — 완료
 - PostgreSQL 최초 초기화 시 테스트 DB 자동 생성 — 완료
 
-향후 과제는 다음과 같다.
+이후 GitHub Actions CI·GHCR/S3 게시·SSM 기반 EC2 CD까지 구성했다. 최신 검증 상태는 [CI/CD 아키텍처](../../architecture/ci-cd.md)에서 관리한다. 현재 남은 과제는 다음과 같다.
 
-- GitHub Actions 기반 CI/CD 구성
 - Testcontainers를 이용한 통합 테스트 환경 자동 준비 검토
 - 테스트 간 데이터 격리 및 정리 전략 개선
 

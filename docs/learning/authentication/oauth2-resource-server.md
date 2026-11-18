@@ -76,7 +76,7 @@ API:    Client → SecurityFilterChain → JWT 검증 → 접근 허용 시 Cont
 서로 다른 책임을 가지며, 기본 필터 구성에서는
 Bearer Token 인증 처리가 인가 판단보다 먼저 수행된다.
 
-토큰이 없는 인증 필요 경로에서는 `AuthorizationFilter`의 접근 거부를 `ExceptionTranslationFilter`가 처리해 EntryPoint를 호출한다. 반면 잘못된 JWT는 Bearer 인증 필터의 실패 처리 경로에서 EntryPoint로 연결된다. 자세한 호출 흐름과 `commence()`의 의미는 [JWT 요청 인증 문서의 실패 처리](./jwt-request-authentication.md#7-인증-실패하면-어떻게-되는가)를 참고한다.
+토큰이 없는 인증 필요 경로에서는 `AuthorizationFilter`의 접근 거부를 `ExceptionTranslationFilter`가 처리해 EntryPoint를 호출한다. 반면 잘못된 JWT는 Bearer 인증 필터의 실패 처리 경로에서 EntryPoint로 연결된다. 자세한 호출 흐름과 `commence()`의 의미는 [JWT 요청 인증 문서의 실패 처리](./jwt-request-authentication.md#4-인증-실패-응답--myshelf-구현)를 참고한다.
 
 ## 4. 기억할 핵심
 

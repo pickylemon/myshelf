@@ -166,7 +166,7 @@ PostgreSQL 데이터는 Docker Named Volume에 보관되며, 일반적인 `docke
 
 Windows PowerShell에서는 `.\gradlew.bat clean build`를 사용합니다. 이 명령은 테스트, Spotless 검사 및 패키징을 포함하며 CI 통과 여부는 PR에서 별도로 확인합니다.
 
-Swagger UI 기본 경로는 `/swagger-ui.html`, OpenAPI JSON은 `/v3/api-docs`입니다. 의존성과 공개 경로는 구성되어 있으나, JWT Bearer 문서 설정 및 실제 UI 실행 검증은 아직 남아 있습니다. [현재 상태](docs/architecture/overview.md#swagger--openapi-현황)를 참고합니다.
+Swagger UI 기본 경로는 `/swagger-ui.html`, OpenAPI JSON은 `/v3/api-docs`입니다. 의존성·공개 경로와 전역 `bearerAuth` 보안 스키마는 구성되어 있습니다. ShelfBook·UserBook 관리 Controller의 인증·응답 문서 보완과 실제 UI 검증은 별도로 남아 있습니다. [현재 상태](docs/architecture/overview.md#swagger--openapi-현황)를 참고합니다.
 
 ### 관련 문서
 

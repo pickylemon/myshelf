@@ -1,5 +1,7 @@
 # PostgreSQL 테스트 DB 자동 생성 누락 문제
 
+> 아래 증상·해결·실행 출력은 Compose 환경 분리 전의 기록이다. 현재 테스트 DB 초기화 SQL 마운트는 `compose.override.yaml`에 있다. 현재 구성으로 재현하는 방법은 [4.5절](#45-현재-구성에서-재현할-때)을 참고한다.
+
 ## 1. 문제 상황
 
 MyShelf는 로컬 개발 환경과 통합 테스트 환경에서 PostgreSQL을 사용한다.
@@ -82,7 +84,7 @@ CREATE DATABASE myshelf_test OWNER myshelf;
 
 ### 3.2. Docker Compose에 초기화 디렉터리 연결
 
-`compose.yaml`의 PostgreSQL 서비스에 다음 마운트를 추가했다.
+당시 `compose.yaml`의 PostgreSQL 서비스에 다음 마운트를 추가했다. 이후 환경 분리에서 Named Volume은 공통 파일에 유지하고, 초기화 SQL Bind Mount는 `compose.override.yaml`로 옮겼다. 운영 파일 조합에는 초기화 SQL 마운트가 포함되지 않는다.
 
 ```yaml
 volumes:
@@ -232,6 +234,12 @@ Network myshelf-verify_default       Removed
 검증용 컨테이너, 네트워크, 볼륨만 제거했으며 기존 개발용 PostgreSQL 데이터 볼륨은 유지했다.
 
 임시 `compose.verify.yaml` 파일은 검증 후 삭제 대상으로 두고 Git에 포함하지 않았다.
+
+### 4.5. 현재 구성에서 재현할 때
+
+위 두 파일 명령은 당시 실제 실행 기록이다. 현재 `compose.yaml + compose.verify.yaml`만 지정하면 로컬 초기화 SQL 마운트가 빠지고 앱의 이미지·빌드 설정도 포함되지 않는다. 재현하려면 `compose.yaml`, `compose.override.yaml`, `compose.verify.yaml`을 순서대로 병합한다.
+
+검증용 파일 정의, 현재 실행·조회·정리 명령과 주의사항은 [Compose 학습 문서의 현재 재현 절차](../learning/infrastructure/docker-compose-configuration-and-isolation.md#67-현재-compose-구성에서-재현하는-방법)에 모아 둔다. 신규 볼륨에서만 초기화 SQL이 실행되며, 기존 개발 볼륨을 삭제해 재현하지 않는다. 이번 문서 정리에서는 해당 절차를 다시 실행하지 않았다.
 
 ## 5. 해결 결과
 
