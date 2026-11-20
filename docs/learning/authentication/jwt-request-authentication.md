@@ -108,21 +108,21 @@ JWT 인증 성공과 **책의 소유권 확인**은 다르다. 다른 사용자�
 - `print()`는 인증 토큰이 로그에 노출될 수 있어 제거했다.
 - 공개 API의 무토큰 접근은 기존 `LoginIntegrationTest`, `UserSignUpIntegrationTest`에서 확인하므로 중복하지 않았다.
 - `MockMvc`가 실제 필터를 통과하도록 유지한다. `jwt()` 테스트 후처리기만 사용하면 실제 토큰 서명·Decoder 검증을 검증하지 못한다.
-- 보호 API는 아직 없어서 `@TestConfiguration`의 테스트 전용 Controller를 사용한다.
+- Feature 3 검증 당시에는 업무용 보호 API가 없어 `@TestConfiguration`의 테스트 전용 Controller를 사용했다. 현재도 이 테스트는 인증 자체를 검증하며, Shelf·Book 업무 API의 소유권 검증은 각 기능의 통합 테스트에서 다룬다.
 
 **통합 테스트는 내부 메서드 호출 순서보다 HTTP 요청부터 최종 응답까지의 동작을 검증한다.**
 
-## 6. Feature 3 마무리 확인
+## 6. Feature 3 당시 마무리 확인
 
 - [x] 기존 회원가입·로그인을 포함한 전체 회귀 테스트: 전체 40건 통과
 - [x] 로컬 전체 빌드 성공(Spotless 검사 포함)
 - [ ] 변경 사항 최종 리뷰, Draft PR 생성 및 GitHub Actions CI 확인
 
-**로컬 검증 완료와 GitHub Actions CI 통과는 별개**다. CI 결과는 PR 생성 후 확인한다.
+위 체크리스트는 Feature 3 당시 기록이다. 이후 JWT 인증을 Shelf·Book API에 적용하고 CI를 구축했다. 최신 기능 상태는 [로드맵](../../planning/roadmap.md), CI 구성은 [CI/CD 아키텍처](../../architecture/ci-cd.md)에서 관리한다. **로컬 검증 완료와 GitHub Actions CI 통과는 별개**다.
 
 ## 참고 자료
 
 - [Spring Security — OAuth2 Resource Server](https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/index.html)
 - [Spring Security — JWT Resource Server](https://docs.spring.io/spring-security/reference/servlet/oauth2/resource-server/jwt.html)
 
-> 이 문서는 공유된 구현·테스트 결과 및 로컬 전체 빌드 성공 보고를 반영했다. GitHub Actions CI 통과는 아직 확인되지 않았다.
+> 5~6절의 테스트 수·실행 결과와 미완료 체크 항목은 2026-10-23 당시 기록이다. 이후 전체 테스트 수나 최신 CI 결과를 나타내지 않는다.

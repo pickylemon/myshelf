@@ -1,5 +1,7 @@
 # Docker Compose로 Spring Boot와 PostgreSQL 통합 실행 — MyShelf
 
+> 본문은 Spring Boot·PostgreSQL 최초 통합 실행 당시의 구성과 검증 기록이다. 현재는 Redis를 포함하고 공통·로컬·운영 Compose 파일을 분리했다. 최신 실행 방법은 [README](../../../README.md#4-로컬-실행-환경), 파일별 책임은 [Compose 환경 분리 ADR](../../decisions/013-compose-environment-separation.md)을 따른다.
+
 ## 1. 작업 배경과 범위
 
 기존 MyShelf 로컬 환경은 **IntelliJ에서 Spring Boot를 실행하고 PostgreSQL만 Docker Compose에서 실행**하는 구조였다. 이후 멀티스테이지 Dockerfile로 `myshelf-app:local` 이미지를 만드는 데 성공했다.
@@ -53,7 +55,7 @@
 
 ## 3. compose.yaml에서 추가한 app 서비스
 
-아래는 **실제 구성의 핵심을 설명하기 위한 발췌본**이다. 데이터베이스 비밀번호는 문서에 기록하지 않았으며, 현재 프로젝트의 PostgreSQL 서비스 및 나머지 설정을 그대로 유지한다.
+아래는 **최초 통합 당시 구성의 발췌본**이다. 현재 `app.build`·로컬 이미지·`local,redis` 프로필은 `compose.override.yaml`에 있고, 공통 파일에는 DB·Redis 연결과 필수 환경변수 전달 설정이 있다. 아래 예시를 최신 Compose 파일 전체로 사용하지 않는다. 데이터베이스 비밀번호는 문서에 기록하지 않는다.
 
 ```yaml
 services:
@@ -346,18 +348,20 @@ docker compose up -d
 
 ---
 
-## 9. 다음 작업 및 남은 검증
+## 9. 당시 후속 작업과 현재 상태
 
 Docker Compose를 이용한 Spring Boot와 PostgreSQL 통합 실행, 회원가입·로그인 및 데이터 영속성 검증까지 완료했다.
 
 DB 비밀번호와 JWT 서명키의 환경변수 관리 및 `.env`의 Git 추적 제외도 확인했다. 환경변수 변경 후 Docker Compose 실행과 API 동작, IntelliJ 직접 실행, 기존 회원 로그인 및 JWT 발급을 검증했다.
 
-이후 진행할 작업은 다음과 같다.
+당시 후속 작업 중 현재 반영한 항목과 남은 항목은 다음과 같다.
 
-- 현재 `compose.yaml` 수정사항 커밋
-- GitHub Actions 기반 CI 구축
-- 별도 작업으로 Testcontainers PostgreSQL 통합 테스트 도입
-- 운영 배포 단계에서 `prod` 프로필과 배포 환경 구성 검토
+- Compose 통합 구성 반영 이후 공통·로컬·운영 설정 분리 완료
+- GitHub Actions CI 및 GHCR·S3 게시, SSM 기반 EC2 CD 구성 완료
+- 운영 `prod,redis` 프로필과 EC2 컨테이너 실행 확인
+- Testcontainers PostgreSQL 통합 테스트 도입은 후속 검토
+
+최신 배포 검증 범위와 남은 운영 과제는 [로드맵](../../planning/roadmap.md)에서 관리한다. 위 최초 검증 결과를 현재 전체 기능의 운영 검증으로 확대하지 않는다.
 
 관련 문서:
 

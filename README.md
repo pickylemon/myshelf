@@ -23,11 +23,11 @@
 - UserBook 등록·재사용, ShelfBook 연결 및 ISBN별 메타데이터 캐시
 - 서재별 도서 목록 조회·메모 수정, 독서 상태 변경 및 ShelfBook 다건 삭제
 
-Feature 5는 구현·테스트 후 main에 병합했습니다(PR #25). 이후 멀티 플랫폼 이미지 게시와 SSH 기반 EC2 자동 배포를 구현했습니다. 기능 검증은 [Feature 5 기록](docs/planning/feature-5-book-management.md#6-구현-단계-및-완료-기준), 자동 배포 결과는 [CD 검증 기록](docs/learning/infrastructure/github-actions-cd.md#7-실제-최초-통합-검증)에 정리합니다.
+Feature 5는 구현·테스트 후 main에 병합했습니다(PR #25). 이후 멀티 플랫폼 이미지 게시와 EC2 자동 배포를 구현하고, PR #36에서 S3·SSM 방식으로 전환했습니다. 기능 검증은 [Feature 5 기록](docs/planning/feature-5-book-management.md#6-구현-단계-및-완료-기준), 자동 배포 결과는 [CD 검증 기록](docs/learning/infrastructure/github-actions-cd.md#8-ssm-전환-및-실제-배포-검증)에 정리합니다.
 
 **이후 범위**
 
-- 포트폴리오 1차 정리 및 운영 보완: SSM 전환, 상태 점검·롤백·외부 공개 구성
+- 포트폴리오 1차 정리 및 운영 보완: 전용 상태 점검, 실패 복구 검증·외부 공개 구성
 - Feature 6: 전체 도서·상세 조회, Shelf 내 순서 변경 및 검색 응답 보완
 - Feature 7: 문장 수집·필사
 - 후속 검토: 독서 통계, 일반 조회 캐싱, Kafka 기반 비동기 처리 및 AI Agent
@@ -54,11 +54,11 @@ Feature 5는 구현·테스트 후 main에 병합했습니다(PR #25). 이후 �
 - Redis (검색 세션 저장·ISBN별 도서 메타데이터 캐시)
 - Docker
 - Docker Compose
-- GitHub Actions CI·CD, GHCR 멀티 플랫폼 이미지, AWS EC2 ARM64 배포
+- GitHub Actions CI·CD, GHCR 멀티 플랫폼 이미지, S3·SSM 기반 AWS EC2 ARM64 배포
 
 Redis는 검색 진행 상태와 ISBN별 도서 메타데이터를 별도 키로 저장합니다. 일반 조회 캐시와 Kafka는 후속 검토 대상입니다.
 
-현재 CD는 main Push의 CI 성공 후 해당 커밋 SHA 이미지를 EC2에 배포하고 기본 HTTP 응답을 확인합니다. 외부 공개·무중단 배포·자동 롤백은 아직 포함하지 않습니다. [CI/CD 아키텍처](docs/architecture/ci-cd.md)를 참고합니다.
+CI가 같은 SHA의 이미지와 S3 배포 파일을 게시하면 CD가 SSM으로 EC2의 릴리스를 전환·배포하고 기본 HTTP 응답을 확인합니다. 이전 릴리스 자동 복구 시도는 구현했지만 실제 실패 복구는 별도 검증이 필요합니다. 외부 공개·무중단 배포는 아직 포함하지 않습니다. [CI/CD 아키텍처](docs/architecture/ci-cd.md)를 참고합니다.
 
 ### Test
 
@@ -166,7 +166,7 @@ PostgreSQL 데이터는 Docker Named Volume에 보관되며, 일반적인 `docke
 
 Windows PowerShell에서는 `.\gradlew.bat clean build`를 사용합니다. 이 명령은 테스트, Spotless 검사 및 패키징을 포함하며 CI 통과 여부는 PR에서 별도로 확인합니다.
 
-Swagger UI 기본 경로는 `/swagger-ui.html`, OpenAPI JSON은 `/v3/api-docs`입니다. 의존성과 공개 경로는 구성되어 있으나, JWT Bearer 문서 설정 및 실제 UI 실행 검증은 아직 남아 있습니다. [현재 상태](docs/architecture/overview.md#swagger--openapi-현황)를 참고합니다.
+Swagger UI 기본 경로는 `/swagger-ui.html`, OpenAPI JSON은 `/v3/api-docs`입니다. 의존성·공개 경로와 전역 `bearerAuth` 보안 스키마는 구성되어 있습니다. ShelfBook·UserBook 관리 Controller의 인증·응답 문서 보완과 실제 UI 검증은 별도로 남아 있습니다. [현재 상태](docs/architecture/overview.md#swagger--openapi-현황)를 참고합니다.
 
 ### 관련 문서
 

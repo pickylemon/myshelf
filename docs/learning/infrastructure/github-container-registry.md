@@ -699,4 +699,4 @@ Build Once, Deploy Many는 한 번 생성한 배포용 이미지를 여러 환�
 
 GHCR 게시 이후 별도 CD 작업을 구현해 CI 성공부터 EC2 신규 이미지 실행까지 연결했다. 실행 번호·배포 SHA·HTTP 확인 결과는 [최초 통합 검증 기록](github-actions-cd.md#7-실제-최초-통합-검증)에서 관리한다.
 
-이는 최초 **로컬 GHCR 실행 검증의 후속 결과**다. 현재 CD는 SHA 태그 기반으로 배포하고 있으며, Digest 고정·자동 롤백·보다 엄격한 서비스 준비 상태 검증은 아직 적용하지 않았다. [EC2 수동 배포 학습](ec2-manual-deployment.md)과 [EC2 자동 배포 학습](ec2-automated-deployment.md)에 관련 절차를 정리한다.
+이는 최초 **로컬 GHCR 실행 검증의 후속 결과**다. 이후 S3·SSM 전환에서는 이전 릴리스로 자동 복구를 시도하는 코드를 추가했지만, 실제 실패 복구는 별도 검증이 필요하다. 현재도 SHA 태그로 배포하며 Digest 고정과 전용 서비스 준비 상태 검사는 적용하지 않았다. 최신 결과는 [SSM 전환 검증](github-actions-cd.md#8-ssm-전환-및-실제-배포-검증), 복구 동작과 한계는 [EC2 자동 배포 학습](ec2-automated-deployment.md#7-실패와-복구-시-주의점)을 참고한다.

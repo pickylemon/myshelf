@@ -359,7 +359,8 @@ PostgreSQL 전환 당시 정의한 후속 작업과 현재 진행 상태는 다�
 - PostgreSQL 최초 초기화 시 테스트 DB 자동 생성 — 완료 (`docker-entrypoint-initdb.d` 활용)
 - 불필요한 H2 관련 의존성 및 설정 정리 — 완료
 - Spring Boot 애플리케이션 Docker 이미지 구성 — 완료
-- 운영 DB의 실행 방식 및 백업 전략 결정 — 미진행
+- 운영 DB 실행 방식 — EC2의 Docker Compose에서 PostgreSQL을 실행하고 Named Volume에 데이터 보관
+- 운영 DB 백업·복구 전략 — 후속 과제. Named Volume 사용은 백업·복구 검증을 의미하지 않음
 
 테스트 DB 자동 생성은 Docker Compose 환경의 최초 초기화를 대상으로 한다.
 

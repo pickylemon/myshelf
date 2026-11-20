@@ -1,6 +1,8 @@
 # EC2 자동 배포 스크립트와 배포 검증
 
-> 기록 기준: 2026-11-13 · `scripts/deploy-ec2.sh` 기반 SSH 배포
+> 기록 기준: 2026-11-16 · S3·SSM 및 릴리스 디렉터리 기반 배포
+>
+> 코드 예시는 설명에 필요한 부분을 발췌한 것이며, 수동 실행 절차는 아니다.
 >
 > 목표: **배포 스크립트가 인자를 전달받은 순간부터 실제 컨테이너 교체와 기록 완료까지 무엇을 수행하는지 이해한다.**
 
@@ -8,11 +10,12 @@
 
 - AWS EC2: Ubuntu 24.04, ARM64 `t4g.small` (2 vCPU, 2 GiB)
 - 배포 디렉터리: `/opt/myshelf`
-- Compose 파일: `compose.yaml` + `compose.prod.yaml`
+- Compose 파일: `current/compose.yaml` + `current/compose.prod.yaml`
+- Compose 식별자: 프로젝트 `myshelf`, 프로젝트 경로 `/opt/myshelf`, 환경변수 `/opt/myshelf/.env`
 - 서비스: `app`(Spring Boot), `postgres`(PostgreSQL 17), `redis`(Redis 7)
 - 이미지 저장소: `ghcr.io/pickylemon/myshelf`
 - 외부 호스트 포트: 애플리케이션 `127.0.0.1:8080:8080` 바인딩. PostgreSQL·Redis는 호스트에 별도 공개 포트를 설정하지 않음
-- 배포 방식: GitHub Actions → SCP로 배포 파일 전송 → SSH로 `deploy-ec2.sh` 실행
+- 배포 방식: CI의 GHCR·S3 게시 → CD의 SSM 명령 → EC2에서 준비·활성화·배포
 
 **현재 방식은 단일 EC2의 Docker Compose 배포다.** 블루·그린이나 무중단 교체를 보장하지 않는다.
 
@@ -20,9 +23,13 @@
 
 | 파일 | 역할 | 갱신 주체 |
 | --- | --- | --- |
-| `compose.yaml` | 공통 서비스·볼륨·네트워크 구성 | Git에 버전 관리, CD가 전송 |
-| `compose.prod.yaml` | 운영 이미지·프로필 등 운영 전용 설정 | Git에 버전 관리, CD가 전송 |
-| `deploy-ec2.sh` | 이미지 교체 실행 절차 | Git에 버전 관리, CD가 전송 |
+| `compose.yaml` | 공통 서비스·볼륨·네트워크 구성 | Git에 버전 관리, CI가 S3 게시 후 EC2가 다운로드 |
+| `compose.prod.yaml` | 운영 이미지·프로필 등 운영 전용 설정 | Git에 버전 관리, CI가 S3 게시 후 EC2가 다운로드 |
+| `deploy-ec2.sh` | 이미지 교체 실행 절차 | Git에 버전 관리, CI가 S3 게시 후 EC2가 다운로드 |
+| `prepare-release-ec2.sh` | 압축 파일 검증, SHA별 릴리스 준비·재사용 | S3 아티팩트에 포함 |
+| `activate-release-ec2.sh` | current 전환·배포 호출·이전 릴리스 복구 시도 | S3 아티팩트에 포함 |
+| `bootstrap-release-ec2.sh` | 기존 운영 파일의 최초 릴리스 이관 | 최초 적용 전 별도 전달·실행 |
+| `current` | 현재 배포 파일 디렉터리를 가리키는 링크 | 최초 이관·활성화 스크립트가 갱신 |
 | `.env` | DB/JWT/API 키 등 운영 환경변수 및 `MYSHELF_IMAGE` 배포 대상 값 | EC2 로컬 보관, 스크립트가 이미지 항목만 수정 |
 | `deployment-history.log` | 배포 시작·성공·실패 이벤트 기록 | 스크립트가 추가 기록 |
 | `.last-successful-image` | 마지막으로 스크립트 검증을 통과한 이미지 태그 | 검증 성공 시 덮어씀 |
@@ -30,6 +37,8 @@
 `.env`는 **단순한 이력 파일이 아니라 Docker Compose가 배포할 이미지 버전과 운영 환경변수를 읽는 설정 파일**이다. 배포 실패 후에도 새 이미지 값이 남을 수 있으므로 `.env` 내용만으로 **현재 정상 동작 중임을 보증하지는 않는다**.
 
 ## 3. 전체 배포 순서
+
+CD는 EC2에서 `/opt/myshelf/.deployment.lock`을 획득하고 아티팩트를 다운로드한다. 준비 스크립트가 다섯 파일과 Compose 설정을 검증하고 `releases/<SHA>`를 만든다. 활성화 스크립트가 `current`를 한 번에 전환한 뒤 배포 스크립트를 호출한다. 아래 흐름은 그중 `deploy-ec2.sh` 내부다.
 
 ```mermaid
 flowchart TD
@@ -39,9 +48,10 @@ flowchart TD
     D --> E[docker pull 신규 이미지]
     E --> F{Pull 성공?}
     F -- 아니오 --> Z[FAILED 기록 후 종료]
-    F -- 예 --> G[임시 파일 작성 후 .env 교체]
-    G --> H[Compose 설정 확인]
-    H --> I[Compose up -d]
+    F -- 예 --> G[후보 환경변수 파일 작성]
+    G --> H[후보 환경변수로 Compose 설정 확인]
+    H --> N[검증된 파일로 .env 교체]
+    N --> I[Compose up -d]
     I --> J[app 컨테이너 이미지 태그 확인]
     J --> K{HTTP 응답 확인?}
     K -- 아니오 --> Z
@@ -72,11 +82,18 @@ NEW_IMAGE="ghcr.io/pickylemon/myshelf:sha-${DEPLOY_SHA}"
 ### 4.2. 기존 설정과 변경 대상을 확인한다
 
 ```bash
-cd /opt/myshelf
-[[ -f .env ]] || exit 1
-[[ $(grep -c '^MYSHELF_IMAGE=' .env || true) == 1 ]] || exit 1
-OLD_IMAGE=$(grep '^MYSHELF_IMAGE=' .env | cut -d= -f2-)
+BASE_DIR=/opt/myshelf
+CURRENT="$BASE_DIR/current"
+RELEASE_DIR="$BASE_DIR/releases/$DEPLOY_SHA"
+ENV_FILE="$BASE_DIR/.env"
+[[ -L "$CURRENT" ]] || exit 1
+[[ "$(readlink -f -- "$CURRENT")" == "$RELEASE_DIR" ]] || exit 1
+[[ -f "$ENV_FILE" ]] || exit 1
+[[ $(grep -c '^MYSHELF_IMAGE=' "$ENV_FILE" || true) == 1 ]] || exit 1
+OLD_IMAGE="$(sed -n 's/^MYSHELF_IMAGE=//p' "$ENV_FILE")"
 ```
+
+`current`가 지정한 SHA의 준비된 릴리스를 가리키는지도 확인한다. 최초 `current`가 없다면 bootstrap으로 이관해야 한다.
 
 기존 `.env`에 `MYSHELF_IMAGE`가 정확히 한 번 존재하는지 확인한다. 기존 이미지 값 `OLD_IMAGE`는 이력 기록에 사용된다.
 
@@ -98,27 +115,34 @@ sudo -n docker pull "$NEW_IMAGE"
 스크립트는 임시 파일을 만들고 기존 `.env`에서 한 줄만 변경한 뒤 `mv`로 교체한다.
 
 ```bash
-TEMP_FILE=$(mktemp /opt/myshelf/.env.XXXXXX)
+CANDIDATE_ENV="$(mktemp "$BASE_DIR/.env.next.XXXXXXXX")"
 awk -v image="$NEW_IMAGE" \
   '/^MYSHELF_IMAGE=/ { print "MYSHELF_IMAGE=" image; next } { print }' \
-  .env > "$TEMP_FILE"
-mv "$TEMP_FILE" .env
+  "$ENV_FILE" > "$CANDIDATE_ENV"
+sudo -n docker compose -p myshelf --project-directory "$BASE_DIR" \
+  --env-file "$CANDIDATE_ENV" \
+  -f "$CURRENT/compose.yaml" -f "$CURRENT/compose.prod.yaml" config --quiet
+mv -fT -- "$CANDIDATE_ENV" "$ENV_FILE"
+CANDIDATE_ENV=""
 ```
 
 `awk`는 `MYSHELF_IMAGE=`로 시작하는 줄을 새 버전으로 바꾸고, 그 외 줄은 그대로 출력한다. 이 방식으로 `DB_PASSWORD`, `JWT_SECRET`, 외부 API 키 등을 유지한다.
 
-임시 파일 교체는 원본을 직접 여러 차례 수정하는 위험을 줄인다. 그러나 **`.env` 갱신부터 서비스 검증까지 전체가 하나의 트랜잭션인 것은 아니다**. 이후 실패하면 `.env`에는 새 태그가 남을 수 있다.
+후보 환경변수를 사용한 Compose 검증이 성공해야 `.env`를 교체한다. 그러나 **환경변수 갱신부터 서비스 검증까지 전체가 하나의 트랜잭션인 것은 아니다**. 이후 실패하면 활성화 스크립트가 이전 설정 복구를 시도한다. 복구에 실패하면 새 태그나 일부 변경이 남을 수 있다.
 
 스크립트는 `umask 077`을 사용해 새 파일의 접근 권한도 제한한다.
 
 ### 4.5. Docker Compose로 컨테이너를 교체한다
 
 ```bash
-sudo -n docker compose -f compose.yaml -f compose.prod.yaml config --quiet
-sudo -n docker compose -f compose.yaml -f compose.prod.yaml up -d
+COMPOSE=(sudo -n docker compose -p myshelf
+  --project-directory "$BASE_DIR" --env-file "$ENV_FILE"
+  -f "$CURRENT/compose.yaml" -f "$CURRENT/compose.prod.yaml")
+"${COMPOSE[@]}" up -d
 ```
 
-- `config --quiet`: Compose 파일 및 변수 치환으로 완성된 구성을 검증한다.
+- 앞 단계의 `config --quiet`: 후보 환경변수를 포함한 Compose 구성을 검증한다.
+- `-p myshelf`, `--project-directory`, `--env-file`: 릴리스 디렉터리가 바뀌어도 기존 프로젝트·설정·볼륨을 계속 사용한다.
 - `up -d`: 변경된 이미지와 서비스 구성에 맞춰 컨테이너를 시작하거나 필요한 경우 재생성한다.
 
 `compose.prod.yaml`의 `pull_policy: always` 때문에 **Compose 실행 시에도 레지스트리에서 이미지 Pull을 시도할 수 있다**. 따라서 별도 `docker pull`과 목적이 일부 겹치지만, 앞의 Pull은 `.env` 갱신 전에 확보 가능 여부를 확인하기 위한 것이다.
@@ -126,7 +150,7 @@ sudo -n docker compose -f compose.yaml -f compose.prod.yaml up -d
 ### 4.6. 실제 실행 중인 컨테이너의 이미지 확인
 
 ```bash
-CONTAINER_ID=$(sudo -n docker compose -f compose.yaml -f compose.prod.yaml ps -q app)
+CONTAINER_ID=$("${COMPOSE[@]}" ps -q app)
 RUNNING_IMAGE=$(sudo -n docker inspect --format '{{.Config.Image}}' "$CONTAINER_ID")
 [[ "$RUNNING_IMAGE" == "$NEW_IMAGE" ]] || exit 1
 ```
@@ -139,8 +163,11 @@ RUNNING_IMAGE=$(sudo -n docker inspect --format '{{.Config.Image}}' "$CONTAINER_
 for attempt in {1..30}; do
   if curl -fsS --max-time 3 -o /dev/null \
     http://127.0.0.1:8080/v3/api-docs 2>/dev/null; then
-    printf '%s\n' "$NEW_IMAGE" > .last-successful-image
+    TEMP_SUCCESS="$(mktemp "$BASE_DIR/.last-successful-image.next.XXXXXXXX")"
+    printf '%s\n' "$NEW_IMAGE" > "$TEMP_SUCCESS"
+    mv -fT -- "$TEMP_SUCCESS" "$LAST_SUCCESS_FILE"
     record_history SUCCESS
+    finished=1
     exit 0
   fi
   sleep 2
@@ -150,7 +177,7 @@ exit 1
 
 애플리케이션이 초기화되는 시간을 고려해 최대 30회 재시도한다. 실제 대기 시간은 각 요청의 지연에 따라 달라질 수 있으므로 단순히 `30 × 2초`로 고정되지 않는다.
 
-현재 `GET /v3/api-docs` 응답은 **기본 HTTP 수준의 배포 확인**이다. 추후 Spring Boot Actuator Health를 도입하면 서비스 의존성 검사 등 더 의미 있는 상태 점검으로 확장할 수 있다.
+현재 `GET /v3/api-docs` 응답은 **기본 HTTP 수준의 배포 확인**이다. `curl -f`의 성공 여부를 사용하며 정확히 200만 허용하는 검사는 아니다. 아래 운영 조회 명령은 HTTP 상태 코드도 출력한다. 추후 Spring Boot Actuator Health를 도입하면 서비스 의존성 검사 등 더 의미 있는 상태 점검으로 확장할 수 있다.
 
 ## 5. 배포 이력의 3가지 상태
 
@@ -160,7 +187,9 @@ exit 1
 | `SUCCESS` | Compose·실행 이미지·HTTP 확인 통과 후 | 스크립트 정의상 배포 검증 성공 |
 | `FAILED` | 오류 처리기가 등록된 이후 0이 아닌 종료가 발생 | 배포 과정 실패 |
 
-`trap on_exit EXIT`가 종료 코드를 검사하여 실패 시 `FAILED`를 기록한다. 단, SSH 연결 자체가 되지 않아 스크립트가 시작되지 않은 경우에는 EC2 파일에 기록할 수 없다. 그런 실패는 GitHub Actions 로그에서 확인한다.
+`trap 'on_exit "$?"' EXIT`로 원래 종료 코드를 전달한다. 정리 명령을 먼저 실행하면 `$?`가 바뀌므로, 오류 코드를 보존한 뒤 임시 파일을 정리하고 `FAILED`를 기록한다. 준비·활성화 검사 등 배포 스크립트가 시작되기 전의 오류는 이 이력에 남지 않을 수 있다. SSM 표준 출력·오류도 함께 확인한다.
+
+활성화 스크립트는 복구 성공 시 별도로 `ROLLBACK_SUCCESS`를 기록한다. 이 이벤트가 있어도 신규 배포의 `FAILED`를 성공으로 바꾸지는 않는다. 실제 자동 복구 시나리오는 아직 별도 검증이 필요하다.
 
 기록 예시(실제 2026-11-13 배포 이력):
 
@@ -173,9 +202,15 @@ exit 1
 
 ## 6. 운영 환경 검증 명령
 
-EC2의 `/opt/myshelf`에서 실행한다.
+EC2의 `/opt/myshelf`에서 조회한다. 루트에 남은 예전 Compose 파일 대신 current의 파일을 사용한다.
 
 ```bash
+cd /opt/myshelf
+readlink -f current
+COMPOSE=(sudo docker compose -p myshelf
+  --project-directory /opt/myshelf --env-file /opt/myshelf/.env
+  -f /opt/myshelf/current/compose.yaml -f /opt/myshelf/current/compose.prod.yaml)
+
 # 설정된 배포 대상 이미지
 grep '^MYSHELF_IMAGE=' .env
 
@@ -186,45 +221,49 @@ cat .last-successful-image
 tail -n 10 deployment-history.log
 
 # 컨테이너 실행 상태
-sudo docker compose -f compose.yaml -f compose.prod.yaml ps
+"${COMPOSE[@]}" ps
 
 # app이 실제 사용 중인 이미지 태그
 sudo docker inspect --format '{{.Config.Image}}' \
-  "$(sudo docker compose -f compose.yaml -f compose.prod.yaml ps -q app)"
+  "$("${COMPOSE[@]}" ps -q app)"
 
 # 애플리케이션 기본 HTTP 확인
 curl -fsS -o /dev/null -w '%{http_code}\n' \
   http://127.0.0.1:8080/v3/api-docs
 
 # 문제 발생 시 app 로그
-sudo docker compose -f compose.yaml -f compose.prod.yaml logs --tail=200 app
+"${COMPOSE[@]}" logs --tail=200 app
 ```
 
 ### 검증 결과와 해석
 
-실제 실행 번호·배포 SHA·HTTP 응답 결과는 [최초 통합 검증 기록](github-actions-cd.md#7-실제-최초-통합-검증)에 모아 둔다. 위 명령으로 `.env`·마지막 성공 기록·실행 컨테이너의 이미지가 일치하는지, PostgreSQL·Redis가 정상 상태인지 구분해 확인한다.
+SSH 최초 결과는 [7절](github-actions-cd.md#7-실제-최초-통합-검증), S3·SSM 전환 결과는 [8절](github-actions-cd.md#8-ssm-전환-및-실제-배포-검증)에서 관리한다. 위 명령으로 `.env`·마지막 성공 기록·실행 컨테이너의 이미지가 일치하는지, PostgreSQL·Redis가 정상 상태인지 구분해 확인한다.
 
 최초 배포에서는 PostgreSQL·Redis가 재생성되지 않은 것을 확인했다. 이는 데이터 영속성을 별도 파괴·복구 테스트로 증명한 것은 아니다.
 
 ## 7. 실패와 복구 시 주의점
 
-| 실패 단계 | `.env` 상태 | 현재 컨테이너에 대한 영향 |
-| --- | --- | --- |
-| 이미지 사전 Pull 실패 | 기존 태그 유지 | 새 컨테이너 교체 시도 전 종료 |
-| `.env` 교체 이후 Compose 실패 | 새 태그가 남을 수 있음 | 일부 서비스 상태가 변경됐을 수 있음 |
-| 이미지 일치 또는 HTTP 검증 실패 | 새 태그가 남을 수 있음 | app이 새 버전이나 비정상 상태일 수 있음 |
-| SSH 연결 실패 | 원격 스크립트 시작 안 함 | EC2 배포 이력에는 기록되지 않음 |
+| 실패 단계 | 처리와 영향 |
+| --- | --- |
+| S3 다운로드·준비 검증 실패 | current 전환 전 중단. 기존 컨테이너 배포를 시작하지 않음 |
+| current 누락 | 활성화 검사에서 중단. 최초 이관 여부 확인 |
+| 이미지 사전 Pull·후보 환경변수 검증 실패 | deploy 스크립트는 .env를 바꾸기 전에 실패하며, 활성화 스크립트가 복구 시도 |
+| Compose·이미지 일치·HTTP 검증 실패 | 일부 상태가 바뀌었을 수 있어 이전 링크·환경변수·이미지 복구 시도 |
+| 복구 실패 | 환경변수 백업을 보존하고 경로 출력. 수동 확인 필요 |
+| SSM 요청·결과 조회 실패 | 원격 작업 실행 여부·지속 여부를 별도로 확인 |
 
-**자동 롤백은 구현하지 않았다.** 장애가 발생하면 먼저 배포 로그와 실제 컨테이너 상태를 확인하고, 복구할 이미지 태그를 결정해야 한다. 직전 성공한 버전은 장애 상황에 따라 `.last-successful-image`에서 확인할 수 있고, 이미 성공한 배포의 이전 버전은 `deployment-history.log`의 `from=` 이력에서 확인한다.
+활성화 스크립트는 전환 전에 이전 릴리스와 환경변수를 보관한다. 전환 이후 오류가 나면 이전 current와 환경변수를 복원하고 `up -d --pull never`로 기존 이미지를 실행한 뒤 태그·HTTP 응답을 확인한다. 복구에 성공해도 신규 배포의 종료 코드는 실패로 유지한다.
 
-복구 명령의 안정성을 검증하지 않은 상태에서 문서에 '자동 복구'라고 적지 않는다. 수동 롤백 실행 절차는 별도 테스트 후 운영 절차로 확정하는 것이 바람직하다.
+이 동작은 **자동 복구 시도 구현**이며 실제 복구 성공을 검증한 기록은 아직 없다. DB 마이그레이션은 되돌리지 않으므로 이전 앱과 변경된 스키마의 호환성이 필요하다. 프로세스 강제 종료나 SSM 실행 시간 제한 등으로 복구가 완료되지 않을 수도 있다.
+
+`current` 전환은 파일 참조만 바꾼다. 컨테이너 교체·환경변수·DB까지 하나의 트랜잭션으로 처리하는 기능은 아니다. 실패 시 SSM 로그·현재 링크·배포 이력·실제 이미지부터 구분하여 확인한다.
 
 ## 8. 앞으로 개선할 점
 
 1. `/v3/api-docs` 대신 전용 Health Check Endpoint 사용
-2. 배포 오류 시 안전한 수동 롤백 절차 검증
+2. 실제 배포 실패·자동 복구 시나리오 및 수동 조치 절차 검증
 3. CI 단계별 실행 시간 측정·최적화
-4. SSH/SCP를 AWS Systems Manager로 전환
+4. CI 재실행의 이미지·아티팩트 재사용 및 장애 분기 검증
 5. 배포 이력 보존 정책과 운영 모니터링 도입
 
 이 항목들은 **현재 완료 상태가 아닌 후속 과제**다.

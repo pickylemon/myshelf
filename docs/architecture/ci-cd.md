@@ -1,9 +1,9 @@
 # MyShelf CI/CD 아키텍처
 
-> 상태: CI·멀티 플랫폼 이미지 게시 및 SSH 기반 EC2 CD 구현 완료 / 배포 후 기본 HTTP 응답 검증 완료
+> 상태: CI의 GHCR·S3 게시 및 SSM 기반 EC2 CD 전환 / 최초 이관·정상 배포 확인
 > 작성일: 2026-10-21
-> 최종 수정일: 2026-11-13
-> 범위: GitHub Actions 기반 CI, AMD64·ARM64 이미지 빌드·게시, OIDC·SSH 기반 EC2 자동 배포
+> 최종 수정일: 2026-11-16
+> 범위: GitHub Actions CI, GHCR 멀티 플랫폼 이미지·S3 아티팩트 게시, OIDC·SSM 기반 EC2 자동 배포
 
 ## 1. 개요
 
@@ -26,7 +26,7 @@ MyShelf는 GitHub Actions를 이용하여 코드 변경사항에 대한 빌드, 
 
 게시된 이미지를 로컬 환경으로 다운로드하고 PostgreSQL과 연결하여 Spring Boot 애플리케이션을 실행했다. 회원가입 및 로그인 API 요청도 정상적으로 처리되는 것을 확인했다.
 
-현재는 `main` Push의 CI가 이미지 게시까지 성공하면 별도 CD 워크플로가 EC2에 배포한다. 구현은 HEAD의 `.github/workflows/cd.yaml`과 `scripts/deploy-ec2.sh`를 기준으로 한다. 실행 번호·배포 SHA·서버 확인 결과는 [최초 통합 검증 기록](../learning/infrastructure/github-actions-cd.md#7-실제-최초-통합-검증)에 모아 둔다. Jenkins 실습, SSM 전환, 자동 롤백은 후속 과제다.
+현재는 `main` Push의 CI가 GHCR 이미지와 동일 SHA의 S3 배포 파일 게시까지 성공하면, CD가 SSM으로 EC2에서 릴리스를 준비·전환하고 배포한다. 구현은 `.github/workflows/ci.yaml`, `cd.yaml`과 `scripts/`의 준비·활성화·배포 스크립트를 기준으로 한다. [SSM 전환 검증 기록](../learning/infrastructure/github-actions-cd.md#8-ssm-전환-및-실제-배포-검증)에 실제 확인 범위와 한계를 정리한다. Jenkins 실습, 전용 상태 점검과 실제 실패 복구 검증은 후속 과제다.
 
 ## 2. GitHub Actions CI 구성
 
@@ -51,19 +51,20 @@ Java, Gradle, PostgreSQL·Redis 및 Spring 프로필 설정은 `build-and-test` 
 
 GitHub Actions를 주 CI 도구로 사용하며, 별도의 Jenkins 서버는 운영하지 않는다.
 
-현재 Workflow는 세 개의 Job으로 구성된다.
+현재 Workflow는 네 개의 Job으로 구성된다.
 
 | Job | 역할 | 실행 조건 |
 |---|---|---|
 | `build-and-test` | Gradle 빌드, Spotless 검사, PostgreSQL·Redis 통합 테스트 | PR, main Push, 수동 실행 |
 | `verify-image` | Docker 이미지 빌드 가능 여부 검증 | PR, `build-and-test` 성공 후 |
-| `publish-image` | Docker 이미지 빌드 및 GHCR 게시 | main Push, `build-and-test` 성공 후 |
+| `publish-image` | 동일 SHA 이미지 재사용 또는 AMD64·ARM64 빌드·GHCR 게시 | main Push, `build-and-test` 성공 후 |
+| `publish-artifacts-to-s3` | 동일 SHA의 다섯 배포 파일 게시·재사용 | main Push, `publish-image` 성공 후 |
 
 `verify-image`와 `publish-image`는 모두 `needs: build-and-test`를 통해 선행 Job에 의존한다.
 
-두 Job은 실행 이벤트에 따라 구분되며, 각각 선행 Job이 성공한 경우에만 실행된다.
+이미지 검증·게시 Job은 실행 이벤트에 따라 구분된다. S3 게시 Job은 `needs: publish-image`로 이미지 게시 이후에 실행되며, S3 게시 실패는 CI 실패가 되어 CD가 진행되지 않는다.
 
-Workflow의 기본 권한은 `contents: read`이고, `publish-image` Job에는 `packages: write` 권한을 추가한다.
+Workflow의 기본 권한은 `contents: read`다. `publish-image`에만 `packages: write`, `publish-artifacts-to-s3`에만 OIDC용 `id-token: write`를 추가한다. PR 테스트에는 AWS 게시 권한을 부여하지 않는다.
 
 GHCR 인증에는 GitHub Actions가 자동 제공하는 `GITHUB_TOKEN`을 사용한다.
 
@@ -72,7 +73,7 @@ GHCR 인증에는 GitHub Actions가 자동 제공하는 `GITHUB_TOKEN`을 사용
 | 이벤트 | 목적 |
 |---|---|
 | `pull_request` → `main` | PR 병합 전 빌드·테스트 및 이미지 빌드 검증 |
-| `push` → `main` | 메인 브랜치 빌드·테스트 및 GHCR 이미지 게시 |
+| `push` → `main` | 메인 브랜치 빌드·테스트 및 GHCR 이미지·S3 배포 파일 게시 |
 | `workflow_dispatch` | 수동 빌드·테스트 실행 |
 
 PR 생성 및 업데이트 시 CI가 자동 실행되는 것을 확인했다.
@@ -83,8 +84,8 @@ PR #13 병합 이후 `main` 브랜치의 `push` 이벤트로 기존 CI가 실행
 
 Docker 이미지 관련 Job은 이벤트별로 구분한다.
 
-- PR: `verify-image` 실행, `publish-image` 건너뜀
-- main Push: `publish-image` 실행, `verify-image` 건너뜀
+- PR: `verify-image` 실행, 이미지·S3 게시 건너뜀
+- main Push: `publish-image` → `publish-artifacts-to-s3` 실행, `verify-image` 건너뜀
 - 수동 실행: 현재는 `build-and-test`만 실행
 
 #### 브랜치 보호 정책
@@ -101,7 +102,7 @@ Docker 이미지 관련 Job은 이벤트별로 구분한다.
 
 이를 통해 Gradle 빌드·테스트 또는 Docker 이미지 빌드 검증에 실패한 PR의 병합을 제한한다.
 
-현재 `publish-image`는 PR 단계에서 실행되지 않으므로 필수 상태 검사에 포함하지 않는다.
+`publish-image`와 `publish-artifacts-to-s3`는 PR 단계에서 실행되지 않는다. PR CI 통과만으로 레지스트리 게시·S3 업로드·EC2 배포까지 검증한 것으로 보지 않는다.
 
 ### 2.3 실행 흐름
 
@@ -143,9 +144,17 @@ build-and-test
 publish-image
   - QEMU 및 Docker Buildx 준비
   - GHCR 인증
-  - AMD64·ARM64 멀티스테이지 Docker 이미지 빌드
-  - 커밋 SHA 기반 태그 지정
-  - GHCR 이미지 게시
+  - 동일 SHA 이미지가 있으면 AMD64·ARM64 확인 후 재사용
+  - 없으면 멀티 플랫폼 이미지를 빌드하여 SHA 태그로 게시
+      |
+      v
+publish-artifacts-to-s3
+  - OIDC로 AWS 인증
+  - 동일 커밋의 Compose·스크립트 다섯 파일 압축
+  - S3 조건부 게시 또는 동일 아티팩트 재사용
+      |
+      v
+CI 성공 → SSM 기반 CD
 ```
 
 이미지 빌드에는 기존 멀티스테이지 Dockerfile을 사용한다.
@@ -156,7 +165,7 @@ publish-image
 
 `verify-image`는 `docker/build-push-action@v6`의 `push: false` 설정으로 이미지 빌드만 수행한다.
 
-반면 `publish-image`는 `push: true`로 이미지를 GHCR에 게시하도록 구성했다.
+`publish-image`는 기존 SHA 이미지가 없을 때 `push: true`로 GHCR에 게시한다. 기존 이미지가 있으면 두 아키텍처를 확인해 재사용하며, 인증·통신 오류는 실패로 처리한다. 같은 SHA의 게시 작업은 concurrency로 제한한다.
 
 이미지 빌드 성공은 컨테이너 실행이나 애플리케이션의 정상 기동까지 보장하지 않는다. 게시된 이미지의 실행 검증은 별도로 진행한다.
 
@@ -275,7 +284,7 @@ GitHub Actions에 `publish-image` Job을 추가하여 GHCR 이미지 게시 자�
 - `packages: write` 권한을 게시 Job에만 부여
 - QEMU·Docker Buildx로 기존 멀티스테이지 Dockerfile의 AMD64·ARM64 이미지 빌드
 - 커밋 SHA 기반 이미지 태그 사용
-- `push: true`로 GHCR에 이미지 게시
+- 동일 SHA 이미지가 있으면 두 아키텍처를 확인하여 재사용하고, 없으면 `push: true`로 게시
 
 게시 대상 이미지 이름은 다음과 같다.
 
@@ -285,7 +294,7 @@ ghcr.io/pickylemon/myshelf:sha-<커밋 SHA>
 
 PR에서는 `verify-image`를 통해 이미지 빌드 가능 여부만 검증한다.
 
-`main`에서는 `publish-image`가 이미지를 다시 빌드하여 GHCR에 게시한다. 따라서 PR에서 검증한 이미지와 `main`에서 게시한 이미지는 별도로 생성된 빌드 결과물이다.
+`main`에서는 동일 SHA 이미지가 없으면 `publish-image`가 빌드·게시하고, 이미 있으면 아키텍처를 확인해 재사용한다. 따라서 PR에서 검증한 이미지와 `main`에서 게시한 이미지는 별도로 생성된 빌드 결과물이다.
 
 #### GHCR 게시 및 실행 검증
 
@@ -319,36 +328,43 @@ Jenkinsfile, 빌드 자동화, 실행 환경 및 관리 방식의 차이를 학�
 
 ### 5.3 운영 배포 및 CD
 
-CD Workflow는 `.github/workflows/cd.yaml`, EC2 실행 절차는 `scripts/deploy-ec2.sh`에 정의한다. AWS EC2 ARM64 `t4g.small`의 `/opt/myshelf`에서 공통·운영 Compose 파일을 병합해 실행한다.
+CD Workflow는 `.github/workflows/cd.yaml`에 정의한다. EC2 ARM64의 `/opt/myshelf`에서 공통·운영 Compose 파일을 병합한다.
 
 | 항목 | 현재 구현 |
 |---|---|
-| 시작 이벤트 | 이름이 `CI`인 워크플로의 `workflow_run: completed` |
-| 배포 조건 | 선행 CI 성공, `push` 이벤트, `main` 브랜치, 원본 저장소 `pickylemon/myshelf` |
-| 배포 버전 | `workflow_run.head_sha`로 파일 Checkout 및 `sha-<SHA>` 이미지 선택 |
+| 시작 이벤트 | 이름이 CI인 워크플로의 workflow_run 완료 |
+| 배포 조건 | CI 성공, push 이벤트, main 브랜치, 원본 저장소 |
+| 버전 선택 | workflow_run.head_sha로 S3 경로와 GHCR 이미지 태그 선택 |
 | AWS 인증 | GitHub OIDC로 IAM Role의 임시 자격 증명 획득 |
-| EC2 접근 | Runner IPv4 `/32`의 SSH 규칙 임시 추가, 호스트 키 검증 후 SSH·SCP |
-| 전달 파일 | `compose.yaml`, `compose.prod.yaml`, `deploy-ec2.sh`. 운영 `.env`는 전송하지 않음 |
-| 동시 배포 | 고정 concurrency 그룹, `cancel-in-progress: false`. 엄격한 순차 큐·최신 커밋 우선 보장은 아님 |
-| 정리 | `always()` 조건으로 생성한 보안 그룹 Rule ID 삭제 시도 |
+| 원격 실행 | SSM AWS-RunShellScript가 ubuntu 사용자로 명령 실행 |
+| 전달 파일 | Compose 두 개 + 준비·활성화·배포 스크립트, 총 다섯 파일. 운영 .env는 제외 |
+| 파일 적용 | 압축 구성·일반 파일·Compose 검증 후 releases/SHA 준비, current 링크 전환 |
+| 동시 배포 | Actions concurrency + 준비부터 종료까지 EC2 flock 잠금 |
+| 결과 반영 | SSM 최종 상태·종료 코드 확인, 원격 실패·대기 초과 시 CD 실패 |
 
 ```text
-main Push → CI(build-and-test → publish-image) → GHCR
-                        ↓ CI 성공 완료 이벤트
-CD: CI head_sha Checkout → OIDC → 임시 SSH 허용 → 배포 파일 전송
-                        ↓
-EC2: 이미지 사전 Pull → .env 이미지 항목 갱신 → Compose up
-                        ↓
-실행 이미지 태그·HTTP 확인 → 성공 이미지·배포 이력 기록
-                        ↓
-Runner: 임시 SSH 규칙 제거
+main Push → 테스트 → GHCR 이미지 게시·재사용 → S3 파일 게시·재사용
+                                                  ↓ CI 성공
+CD: OIDC → SSM 명령 → EC2 잠금 → S3 다운로드 → 릴리스 검증·준비
+                                                  ↓
+current 링크 전환 → 이미지 Pull → 후보 .env 검증·교체 → Compose 실행
+                                                  ↓
+실행 이미지·HTTP 확인 → 배포 이력 기록 → SSM 결과를 CD에 반영
 ```
 
-운영 `.env`의 비밀정보는 EC2에서 관리하며, 배포 스크립트는 `MYSHELF_IMAGE`만 갱신한다. `.env` 갱신 이후 실패해도 자동 복원하지 않는다. 마지막 검증 성공 이미지는 `.last-successful-image`, 시도·성공·실패는 `deployment-history.log`에 남긴다.
+Git이 배포 파일의 원본과 변경 이력을 관리하고 S3는 같은 커밋의 아티팩트를 전달한다. 조건부 업로드는 기존 S3 객체 덮어쓰기를 방지하며, 재현 가능한 압축 파일의 SHA-256으로 재실행 시 동일 여부를 비교한다.
 
-현재 HTTP 검사는 EC2 내부의 `http://127.0.0.1:8080/v3/api-docs`를 사용한다. 앱 포트는 루프백에만 바인딩하며 PostgreSQL·Redis 호스트 포트는 게시하지 않는다. 이 확인은 외부 공개, 전체 비즈니스 API, 데이터 복구 또는 무중단 배포를 보장하지 않는다.
+`bootstrap-release-ec2.sh`는 기존 운영 파일의 최초 이관에 사용한다. 매 배포의 S3 아티팩트에서는 제외하며, EC2에 별도로 전달하여 current를 만든 뒤 새 CD를 실행한다. 자세한 이관 과정은 [Troubleshooting](../troubleshooting/github-actions-cd-troubleshooting.md#7-ssm-첫-배포-실패-error-run-bootstrap-first)을 참고한다.
 
-SSM 전환, 전용 Health Check, Digest 고정, 롤백, HTTPS·리버스 프록시 및 운영 모니터링은 후속 범위다. 상세 원리와 단계별 코드는 [CD 학습](../learning/infrastructure/github-actions-cd.md), [OIDC·IAM](../learning/infrastructure/github-oidc-aws-iam.md), [EC2 배포 스크립트](../learning/infrastructure/ec2-automated-deployment.md)를 참고한다.
+Compose에는 프로젝트 이름 `myshelf`, 프로젝트 경로 `/opt/myshelf`, 공통 `.env`를 명시한다. 릴리스 경로 변경이 새로운 프로젝트·데이터 볼륨 생성으로 이어지지 않도록 한다. `.env`·배포 이력·마지막 성공 이미지 기록은 릴리스 밖에 유지한다.
+
+활성화 이후 실패하면 이전 current와 환경변수를 복원하고 기존 이미지를 `up -d --pull never`로 실행하여 복구를 시도한다. 복구 실패 시 백업을 보존한다. 복구에 성공해도 신규 배포는 실패로 보고한다. DB 마이그레이션 복원·복구 성공·무중단 배포를 보장하지 않으며 실제 실패 복구는 별도 검증이 필요하다.
+
+HTTP 검사는 EC2 내부 `http://127.0.0.1:8080/v3/api-docs`의 curl 성공 여부다. 정확히 HTTP 200만 허용하는 조건은 아니며, 전체 비즈니스 API나 데이터 복구를 검증하지 않는다. 앱 포트는 루프백에 바인딩하고 PostgreSQL·Redis 호스트 포트는 게시하지 않는다.
+
+2026-11-16 main CI #52의 이미지·S3 게시와 최초 이관 후 CD 재실행 성공을 확인했다. 정상 배포 성공을 자동 복구·데이터 보존·CI 재실행의 종합 검증으로 확대하지 않는다. [SSM 전환 기록](../learning/infrastructure/github-actions-cd.md#8-ssm-전환-및-실제-배포-검증)을 참고한다.
+
+전용 Health Check, Digest 고정, 실패 복구 검증, HTTPS·외부 공개 및 운영 모니터링은 후속 범위다. SSH 키·보안 그룹·IAM 권한의 실제 정리는 워크플로 변경과 별도로 확인한다.
 
 ## 6. 관련 문서
 
@@ -359,7 +375,7 @@ SSM 전환, 전용 Health Check, Digest 고정, 롤백, HTTPS·리버스 프록�
 - 개발 일정 및 후속 작업: [로드맵](../planning/roadmap.md)
 - GHCR 이미지 게시 자동화: GitHub Issue #15
 - GHCR 이미지 게시 및 실행 검증: [GitHub Container Registry 학습](../learning/infrastructure/github-container-registry.md)
-- CD 검증 기록: [GitHub Actions CD](../learning/infrastructure/github-actions-cd.md#7-실제-최초-통합-검증)
+- CD 검증 기록: [SSH 최초 검증](../learning/infrastructure/github-actions-cd.md#7-실제-최초-통합-검증), [SSM 전환 검증](../learning/infrastructure/github-actions-cd.md#8-ssm-전환-및-실제-배포-검증)
 - 배포 장애 진단: [CD 트러블슈팅](../troubleshooting/github-actions-cd-troubleshooting.md)
 
 구체적인 구현 작업과 검증 결과는 GitHub Issues에서 관리한다.

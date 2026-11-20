@@ -1,6 +1,6 @@
 # GitHub Actions EC2 CD 구축 트러블슈팅
 
-> 대상: MyShelf SSH 기반 CD 구축 과정 · 2026-11-13
+> 대상: MyShelf SSH 기반 CD 구축 및 S3·SSM 전환 과정 · 2026-11-13, 2026-11-16
 >
 > 원칙: **실제로 관찰한 현상과 확인한 원인을 구별하고, 아직 발생하지 않은 장애는 '가능한 원인'으로만 기록한다.**
 
@@ -113,24 +113,31 @@ PR 병합 이후 CI 성공 → CD 자동 실행을 확인했다. 실행 번호·
 | 실패 단계 | 우선 확인할 곳 |
 | --- | --- |
 | CI 빌드·이미지 게시 | GitHub Actions `CI` 로그 |
+| S3 아티팩트 게시 | CI의 `publish-artifacts-to-s3` 로그 |
 | OIDC 역할 인수 | CD의 `Configure AWS credentials` 단계 및 IAM Role 신뢰 정책 |
-| 보안 그룹 임시 규칙 | CD의 `Allow runner SSH access` / `Remove runner SSH access` |
-| SSH 로그인·SCP | `Configure SSH`, `Test EC2 SSH connection`, `Upload deployment files` |
-| 이미지 Pull·Compose·HTTP | CD의 `Deploy MyShelf` 로그와 EC2 `deployment-history.log` |
+| 보안 그룹 임시 규칙 (기존 SSH 방식) | CD의 `Allow runner SSH access` / `Remove runner SSH access` |
+| SSH 로그인·SCP (기존 SSH 방식) | `Configure SSH`, `Test EC2 SSH connection`, `Upload deployment files` |
+| SSM 원격 실행·릴리스 준비 및 전환 | CD의 `Deploy MyShelf via SSM` 로그 중 상태·종료 코드·표준 출력·오류 출력 |
+| 이미지 Pull·Compose·HTTP | SSM 표준 출력·오류 출력 및 EC2 `deployment-history.log` |
 | 실제 앱 오류 | EC2 Docker Compose `logs app` |
 
-EC2에서 사용하는 명령:
+릴리스 구조로 전환한 EC2에서 사용하는 조회 명령:
 
 ```bash
 cd /opt/myshelf
 
 tail -n 20 deployment-history.log
-sudo docker compose -f compose.yaml -f compose.prod.yaml ps
-sudo docker compose -f compose.yaml -f compose.prod.yaml logs --tail=200 app
+readlink -f current
+sudo docker compose -p myshelf --project-directory /opt/myshelf \
+  --env-file /opt/myshelf/.env \
+  -f current/compose.yaml -f current/compose.prod.yaml ps
+sudo docker compose -p myshelf --project-directory /opt/myshelf \
+  --env-file /opt/myshelf/.env \
+  -f current/compose.yaml -f current/compose.prod.yaml logs --tail=200 app
 curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/v3/api-docs
 ```
 
-`deployment-history.log`에 `FAILED`가 없다고 해서 GitHub Actions 전체가 성공한 것은 아니다. **스크립트 시작 전의 AWS 인증·SSH 접속 실패는 EC2 배포 이력에 기록되지 않는다.**
+`deployment-history.log`에 `FAILED`가 없다고 해서 GitHub Actions 전체가 성공한 것은 아니다. **배포 스크립트 시작 전의 인증·다운로드·릴리스 활성화 검사 실패는 이 스크립트의 배포 이력에 기록되지 않는다.** `current`가 아직 없다면 아래 7절의 최초 이관 과정을 먼저 확인한다.
 
 ## 6. 검증 완료 사실과 미검증 항목
 
@@ -138,16 +145,150 @@ curl -fsS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/v3/api-docs
 
 최초 통합 검증의 결과는 [GitHub Actions CD 7절](../learning/infrastructure/github-actions-cd.md#7-실제-최초-통합-검증)에서 관리한다. EC2에서 상태와 이력을 다시 확인하는 방법은 [배포 검증 명령](../learning/infrastructure/ec2-automated-deployment.md#6-운영-환경-검증-명령)을 참고한다.
 
-### 아직 검증하지 않은 기능
+### SSH 최초 통합 검증 당시의 미검증 항목
 
-- 배포 실패 시 자동 롤백 (**구현하지 않음**)
+- 배포 실패 시 자동 롤백 (당시 미구현, SSM 전환 코드에는 복구 시도가 추가되었으나 실제 실패 복구는 별도 검증 필요)
 - 모든 API의 정상 동작과 데이터 영속성에 대한 종합 테스트
 - 비정상 Runner 종료 시 임시 보안 그룹 규칙 자동 청소 보장
 - 부하 상황의 응답 지연·장애 감지
-- AWS SSM을 이용한 CD (**전환 전**)
+- AWS SSM을 이용한 CD (당시 전환 전, 2026-11-16의 최초 이관과 재실행 결과는 아래 7절 참고)
+
+## 7. SSM 첫 배포 실패: `ERROR: Run bootstrap first`
+
+### 관찰한 현상
+
+2026-11-16, PR #36을 `main`에 병합한 뒤 CI #52가 성공했다.
+
+| 작업 | 확인한 결과 |
+| --- | --- |
+| `build-and-test` | 성공 |
+| `publish-image` | 성공 |
+| `publish-artifacts-to-s3` | 성공 |
+| `verify-image` | Push에서는 의도적으로 생략 |
+
+이후 CD의 `Configure AWS credentials`는 성공했지만, `Deploy MyShelf via SSM`에서 다음 로그가 출력됐다.
+
+```text
+SSM status: Failed
+Exit code: 1
+Release prepared: /opt/myshelf/releases/<신규 SHA>
+ERROR: Run bootstrap first
+```
+
+**이미지·S3 게시와 새 릴리스 준비는 성공했지만, 기존 운영 파일을 새 디렉터리 구조로 이관하는 절차가 빠져 있었다.**
+
+### 먼저 이해할 구조: 새 파일 준비와 실제 배포는 별개다
+
+기존 SSH 배포는 `/opt/myshelf` 바로 아래에 있는 Compose 파일을 사용했다. 새 배포는 커밋별 디렉터리에 파일을 보관하고, `current` 심볼릭 링크가 가리키는 릴리스의 파일을 사용한다.
+
+심볼릭 링크는 여기서 **사용할 배포 파일 디렉터리를 가리키는 참조**다. `current`를 바꾼다고 실행 중인 컨테이너가 자동으로 교체되지는 않는다. 이후 배포 스크립트가 Docker Compose를 실행해야 새 이미지가 적용된다.
+
+```text
+최초 실패 당시 /opt/myshelf/
+├── .env
+├── compose.yaml               ← 기존 운영 파일
+├── compose.prod.yaml
+├── deploy-ec2.sh
+└── releases/
+    └── <신규 SHA>/            ← S3에서 받아 검증까지 마친 새 파일
+
+current 링크는 아직 없음
+```
+
+정상적인 호출 관계는 다음과 같다.
+
+```text
+CI: 테스트 → GHCR 이미지 게시·재사용 → S3 파일 묶음 게시·재사용
+                                      ↓ CI 성공
+CD: SSM 명령 → EC2에서 다운로드 → 준비 → 활성화 → 이미지 배포·HTTP 확인
+                                 │       │         │
+                                 │       │         └─ deploy-ec2.sh
+                                 │       └─ activate-release-ec2.sh
+                                 └─ prepare-release-ec2.sh
+```
+
+준비 스크립트는 새 파일의 구성·내용·Compose 설정을 검증하여 릴리스 디렉터리를 만든다. 활성화 스크립트는 기존 `current`를 확인한 뒤 새 릴리스로 전환하고 배포 스크립트를 호출한다.
+
+### 원인: 새 배포 코드가 요구하는 출발점이 없었다
+
+활성화 스크립트는 `.env`가 있거나 없는지만 보는 것이 아니라, **기존 운영 릴리스를 가리키는 `current`도 있는지** 검사한다.
+
+```bash
+[[ -f "$ENV_FILE" && -L "$CURRENT" ]] || {
+  echo 'ERROR: Run bootstrap first' >&2
+  exit 1
+}
+```
+
+따라서 이 오류는 `.env` 또는 `current`가 없을 때 발생할 수 있다. 이번에는 EC2의 파일 목록에서 `.env`는 존재했고 `current`만 없었다.
+
+기존 릴리스를 알아야 전환 전후의 파일을 구분하고, 배포 실패 시 이전 파일과 설정으로 복구를 시도할 수 있다. 이 검사에서 멈췄기 때문에 **최초 실패에서는 링크 전환·환경변수 갱신·새 컨테이너 배포가 시작되지 않았다.**
+
+### bootstrap이 하는 일과 S3 묶음에서 제외한 이유
+
+`bootstrap-release-ec2.sh`는 이번 구조 변경을 위한 최초 이관 도구다.
+
+1. 기존 `.env`의 이미지 SHA와 실제 실행 중인 앱의 이미지 태그가 같은지 확인한다.
+2. 기존 운영 파일 세 개를 `releases/<기존 SHA>/`에 복사한다.
+3. `current`가 해당 디렉터리를 가리키도록 만든다.
+
+이관 과정은 컨테이너를 재생성하거나 `.env`·데이터 볼륨을 변경하지 않는다. 기존 배포 파일도 원래 위치에 남긴다. 복사된 파일은 당시 EC2의 운영 파일 스냅샷이다.
+
+매 배포의 S3 묶음에는 Compose 파일 두 개와 준비·활성화·배포 스크립트, 총 다섯 파일이 들어간다. bootstrap은 기존 구조를 처음 이관할 때만 필요하므로 이 묶음에서 제외했다. **SSM 자체가 bootstrap을 요구하는 것은 아니며, MyShelf의 릴리스 구조를 도입하면서 생긴 절차다.**
+
+다만 최초 이관용 스크립트를 EC2에 별도로 전달하는 절차가 빠졌다. 그 결과 파일을 실행하라는 안내만으로는 진행할 수 없었다. S3 제외 결정과 별개로, 최초 배포 전에 스크립트를 전달·실행하는 준비가 필요했다.
+
+### 실제 해결 과정
+
+아래는 당시 수행한 이관 기록이다. 최초 이관을 완료한 서버에서 매 배포마다 실행할 명령은 아니다.
+
+1. 저장소의 `scripts/bootstrap-release-ec2.sh` 내용을 EC2의 `/opt/myshelf/bootstrap-release-ec2.sh`에 저장했다.
+2. 기존 운영 사용자 `ubuntu`로 실행했다.
+
+```bash
+cd /opt/myshelf
+chmod +x bootstrap-release-ec2.sh
+./bootstrap-release-ec2.sh
+```
+
+`./파일명`은 실행 권한과 파일 첫 줄의 `#!/usr/bin/env bash`를 사용한다. `bash bootstrap-release-ec2.sh`로 실행하면 파일 자체의 실행 권한은 필요하지 않다.
+
+실행 결과:
+
+```text
+Initial release registered: 8acdf393d996d1f6b716b037eff953296632c358
+Running containers, .env and Docker volumes were not changed.
+```
+
+EC2의 파일 목록에서도 다음 링크가 생성된 것을 확인했다.
+
+```text
+current -> /opt/myshelf/releases/8acdf393d996d1f6b716b037eff953296632c358/
+```
+
+3. GitHub Actions에서 실패한 CD의 **Re-run failed jobs**를 실행했다. CI는 다시 실행하지 않았다.
+4. 사용자가 CD 재실행 성공을 확인했다.
+
+CI에서 이미지와 아티팩트가 이미 게시되었으므로, 재실행한 CD는 같은 SHA의 파일을 내려받아 준비된 릴리스와 비교하고 재사용할 수 있다. 이후 `current`를 새 릴리스로 전환하여 배포를 진행한다.
+
+```text
+최초 이관: current 없음 → 기존 SHA를 가리키도록 생성
+CD 재실행: current → 기존 SHA → 신규 SHA로 전환 → 배포·HTTP 확인
+```
+
+### 확인한 범위와 남은 검증
+
+- CI 성공과 최초 CD 실패 지점은 제공된 GitHub Actions 화면에서 확인했다.
+- bootstrap 실행 성공과 기존 SHA의 `current` 생성은 제공된 EC2 출력에서 확인했다.
+- 이후 CD 성공은 사용자의 확인을 기록했다. 이 문서 작성 과정에서 EC2에 접속하거나 CD를 재실행하지 않았다.
+- 자동 복구 성공, DB 데이터 보존, 모든 API 동작, 동일 SHA의 CI 전체 재실행까지 검증한 것으로 확대하지 않는다.
+
+이후 배포에서는 일반 CD가 준비·전환·배포를 수행한다. 최초 이관 오류가 다시 나타나면 bootstrap을 무조건 실행하기보다 `.env`, `current`, 링크 대상 디렉터리의 상태를 먼저 확인한다.
 
 ## 관련 문서
 
 - [GitHub Actions CD](../learning/infrastructure/github-actions-cd.md)
 - [GitHub OIDC와 AWS IAM](../learning/infrastructure/github-oidc-aws-iam.md)
 - [EC2 자동 배포](../learning/infrastructure/ec2-automated-deployment.md)
+- [S3·SSM 배포 전략](../planning/cd-deployment-strategy.md)
+- [최초 이관 스크립트](../../scripts/bootstrap-release-ec2.sh)
