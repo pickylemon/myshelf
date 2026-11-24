@@ -1,5 +1,7 @@
 # 도서 검색의 외부 의존성과 테스트 범위
 
+Feature 5의 테스트 설계·픽스처·검증 경계를 정리한 기록이다. 아래 클래스 목록과 실행 조건은 당시 구성이며 이후 테스트 추가마다 갱신하는 목록이 아니다. 현재 테스트는 [테스트 소스](../../../src/test/java/com/myshelf/book), 현재 동작은 [도서 관리](../../architecture/book-management.md)와 [검색 아키텍처](../../architecture/book-search.md)에서 확인한다. 실행 결과는 실제 실행 시점별로 구분한다.
+
 ## 1. 무엇을 실제로 연결할 것인가
 
 도서 검색에는 외부 HTTP API, PostgreSQL, Redis가 함께 사용된다. 모든 테스트에서 전부 실행하면 실패 원인을 구분하기 어렵다. 반대로 전부 Mock으로 바꾸면 직렬화나 JOIN 조건 같은 연결 문제를 놓친다.
@@ -16,7 +18,7 @@
 | `BookPersistenceAdapterIntegrationTest` | 실제 PostgreSQL JOIN·사용자 격리·목록 정렬·메모 변경·DB 제약 | 없음 |
 | `BookSearchIntegrationTest` | JWT → 검색 진행 → Redis·PostgreSQL → HTTP 응답 | 외부 검색 Port만 Mock |
 
-등록·캐시에는 `BookServiceTest`, `BookRegistrationWriterTest`, `ShelfBookAddControllerTest`, `ShelfBookAddIntegrationTest`, `RedisBookMetadataCacheTest`, `RedisBookMetadataCacheIntegrationTest`도 있다. 관리 기능은 `ShelfBookControllerTest`, `UserBookControllerTest`, `ShelfControllerTest`, `ShelfBookManagementIntegrationTest`에서 메모·독서 상태 변경·다건 삭제·Shelf별 목록을 검증한다. 현재 구조와 검증 범위는 [도서 관리 문서](../../architecture/book-management.md#6-검증-상태)를 참고한다.
+등록·캐시에는 `BookServiceTest`, `BookRegistrationWriterTest`, `ShelfBookAddControllerTest`, `ShelfBookAddIntegrationTest`, `RedisBookMetadataCacheTest`, `RedisBookMetadataCacheIntegrationTest`도 작성했다. 관리 기능은 `ShelfBookControllerTest`, `UserBookControllerTest`, `ShelfControllerTest`, `ShelfBookManagementIntegrationTest`에서 메모·독서 상태 변경·다건 삭제·Shelf별 목록을 검증했다. 당시 요구사항은 [Feature 5](../../planning/feature-5-book-management.md), 이후 테스트 변경 시 적용할 규칙은 [현행 도서 관리 정책](../../planning/book-management-policy.md)을 확인한다.
 
 ## 2. 외부 HTTP는 서버를 호출하지 않고 검증
 
@@ -79,11 +81,17 @@ API 통합 테스트는 실제 JWT를 발급하고 검색 → 버퍼 반환 → 
 
 실행 전 `myshelf_test`와 Redis DB 1인지 확인한다. 정리할 때는 생성한 Redis 키와 사용자 데이터만 제거하고, DB는 ShelfBook → UserBook·Shelf → User 순으로 삭제한다. Redis 정리가 실패해도 DB 정리는 실행되도록 `finally`를 사용한다.
 
+### 5.1. 등록 트랜잭션의 롤백 검증
+
+`ShelfBookAddIntegrationTest`는 다건 등록의 앞 항목에서 생성·상태 변경·연결을 수행한 뒤 뒤 항목에서 제목 길이의 DB 제약 위반을 발생시킨다. 실제 Writer 트랜잭션이 종료된 후 별도 JDBC 조회로 앞선 변경도 남지 않는지 확인한다.
+
+테스트 메서드 자체에 `@Transactional`을 붙이면 실제 Writer의 경계와 달라질 수 있어 사용하지 않는다. 웹 Validation 실패만 확인하면 DB 쓰기 이후의 롤백을 검증할 수 없으므로, DB 제약 위반이 나는 입력을 준비하는 점이 중요하다. 테스트 코드의 존재와 이번 작업에서의 실행 여부는 구분한다.
+
 ## 6. 실행 조건과 남은 검증
 
 PostgreSQL·Redis를 실행하고 Gradle에 `DB_PASSWORD`를 전달해야 한다. 외부 API 키는 test 프로필의 가짜 값을 사용하며 실제 외부 API에 보내지 않는다. Redis 통합 테스트가 `test,redis` 프로필을 직접 활성화한다.
 
-현재 `.github/workflows/ci.yaml`의 `build-and-test`에는 PostgreSQL·Redis 서비스가 모두 있다. 로컬에서 Redis가 실행 중이어도 CI에는 자동 제공되지 않으므로 별도로 추가한 구성이다. 최신 로컬 실행 범위와 개발자가 확인한 Draft PR CI 통과 결과는 [Feature 5 검증 기록](../../planning/feature-5-book-management.md#6-구현-단계-및-완료-기준)에서 관리한다.
+Feature 5 검증 당시 `build-and-test`에 PostgreSQL·Redis 서비스를 준비했다. 로컬에서 Redis가 실행 중이어도 CI에는 자동 제공되지 않으므로 별도로 추가한 구성이다. 당시 로컬 실행 범위와 개발자가 확인한 Draft PR CI 통과 결과는 [Feature 5 검증 기록](../../planning/feature-5-book-management.md#6-구현-단계-및-완료-기준)에 보존한다. 현재 CI 환경은 [CI/CD 아키텍처](../../architecture/ci-cd.md)를 확인한다.
 
 관리·목록 API의 입력·소유권·정렬·빈 결과, 등록 중 실패 시 전체 롤백, 연결 삭제·Shelf CASCADE 이후 UserBook 보존 테스트를 보완했다. 테스트 코드의 존재와 실제 실행 결과는 구분하며, 운영 배포 검증까지 완료한 것으로 해석하지 않는다.
 

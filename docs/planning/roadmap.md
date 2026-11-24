@@ -26,7 +26,7 @@ JWT 발급과 OAuth2 Resource Server 기반 요청 인증을 구현했다. Featu
 | [Feature 6](./feature-6-book-browsing-and-ordering.md) | 전체 도서·상세 조회, Shelf 내 순서 변경, 검색 응답 보완 | 후속 기능 |
 | [Feature 7](./feature-7-transcription.md) | 문장 수집·필사 및 Paper | 후속 기능, 세부 범위 확정 전 |
 
-Feature 4는 Service 단위·웹 계층·PostgreSQL Adapter·실제 JWT API 통합 테스트를 갖췄다. 2026-10-28 확인한 로컬 테스트 결과 파일은 프로젝트 전체 123개 통과(실패·오류·스킵 0)이며, Shelf 테스트만의 개수가 아니다. 로컬 `clean test` 통과와 `build`·Spotless·CI 통과는 구분한다.
+Feature 4의 계층별 테스트 범위와 당시 로컬 실행 결과는 [Shelf 테스트 학습·검증 기록](../learning/testing/shelf-testing-strategy.md#12-기존-실행-검증-기록)에서 관리한다. 로드맵에는 테스트 수를 중복 기재하지 않는다.
 
 Feature 5에는 실제 JWT·PostgreSQL·Redis를 연결하고 외부 API만 Mock으로 대체한 검색·등록 통합 테스트와 관리·목록 API의 회귀 테스트가 있다. 로컬 실행 범위와 개발자가 확인한 CI 결과는 [Feature 5 검증 기록](./feature-5-book-management.md#6-구현-단계-및-완료-기준)에서 관리한다. [검색 설계](../architecture/book-search.md), [테스트 전략](../learning/testing/book-search-testing-strategy.md)을 참고한다.
 
@@ -40,7 +40,7 @@ CI는 빌드·테스트 후 AMD64·ARM64 이미지를 GHCR에, 동일 커밋의 
 
 6단계에서는 main Push의 CI 성공을 조건으로 OIDC·S3·SSM 기반 EC2 배포와 기본 HTTP 확인까지 연결했다. [SSM 전환 검증 기록](../learning/infrastructure/github-actions-cd.md#8-ssm-전환-및-실제-배포-검증)에 확인한 결과와 한계를 모아 둔다. 전용 상태 점검, 자동 복구의 실제 실패 시나리오 검증, HTTPS·외부 공개 및 모니터링은 후속 과제다.
 
-CI/CD의 세부 설계와 구현 상태는 `docs/architecture/ci-cd.md`에서 관리한다.
+CI/CD의 세부 구조는 [CI/CD 아키텍처](../architecture/ci-cd.md), 문서의 역할과 읽는 경로는 [문서 구성 및 관리 가이드](../documentation-guide.md)에서 관리한다.
 
 ## 진행 원칙
 

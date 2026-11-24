@@ -2,14 +2,14 @@
 
 > 상태: CI의 GHCR·S3 게시 및 SSM 기반 EC2 CD 전환 / 최초 이관·정상 배포 확인
 > 작성일: 2026-10-21
-> 최종 수정일: 2026-11-16
+> 최종 수정일: 2026-11-24
 > 범위: GitHub Actions CI, GHCR 멀티 플랫폼 이미지·S3 아티팩트 게시, OIDC·SSM 기반 EC2 자동 배포
 
 ## 1. 개요
 
 MyShelf는 GitHub Actions를 이용하여 코드 변경사항에 대한 빌드, 테스트 및 Docker 이미지 빌드 검증을 자동화한다.
 
-기존에는 개발자가 로컬에서 직접 검증했지만, CI 도입 이후에는 GitHub의 독립적인 실행 환경에서도 동일한 테스트를 수행하고 Docker 이미지 생성 가능 여부를 확인한다.
+이 문서는 현재 CI/CD의 책임·연결·실패 처리 기준을 설명한다. 구축 과정과 실제 실행 결과는 아래 검증 기록으로 연결하며, 실행 번호·테스트 수를 이 문서에 중복 관리하지 않는다.
 
 주요 목적은 다음과 같다.
 
@@ -20,11 +20,7 @@ MyShelf는 GitHub Actions를 이용하여 코드 변경사항에 대한 빌드, 
 - Docker 이미지 빌드 검증 및 Registry 게시 자동화
 - CI가 게시한 커밋 SHA 이미지의 EC2 자동 배포와 기본 HTTP 응답 확인
 
-현재 Gradle 빌드·테스트 자동화와 PR 단계의 Docker 이미지 빌드 검증을 완료했다.
 
-또한 `main` 브랜치에 병합된 변경사항을 기반으로 GHCR 이미지 게시가 정상적으로 수행되는 것을 확인했다.
-
-게시된 이미지를 로컬 환경으로 다운로드하고 PostgreSQL과 연결하여 Spring Boot 애플리케이션을 실행했다. 회원가입 및 로그인 API 요청도 정상적으로 처리되는 것을 확인했다.
 
 현재는 `main` Push의 CI가 GHCR 이미지와 동일 SHA의 S3 배포 파일 게시까지 성공하면, CD가 SSM으로 EC2에서 릴리스를 준비·전환하고 배포한다. 구현은 `.github/workflows/ci.yaml`, `cd.yaml`과 `scripts/`의 준비·활성화·배포 스크립트를 기준으로 한다. [SSM 전환 검증 기록](../learning/infrastructure/github-actions-cd.md#8-ssm-전환-및-실제-배포-검증)에 실제 확인 범위와 한계를 정리한다. Jenkins 실습, 전용 상태 점검과 실제 실패 복구 검증은 후속 과제다.
 
@@ -76,11 +72,7 @@ GHCR 인증에는 GitHub Actions가 자동 제공하는 `GITHUB_TOKEN`을 사용
 | `push` → `main` | 메인 브랜치 빌드·테스트 및 GHCR 이미지·S3 배포 파일 게시 |
 | `workflow_dispatch` | 수동 빌드·테스트 실행 |
 
-PR 생성 및 업데이트 시 CI가 자동 실행되는 것을 확인했다.
 
-PR #13 병합 이후 `main` 브랜치의 `push` 이벤트로 기존 CI가 실행되었으며, 정상 완료를 확인했다.
-
-이후 PR #16 병합으로 발생한 `main` Push 이벤트에서는 `build-and-test`와 `publish-image`가 성공적으로 실행되어 GHCR 이미지 게시까지 완료되었다.
 
 Docker 이미지 관련 Job은 이벤트별로 구분한다.
 
@@ -206,54 +198,22 @@ CI 비밀번호와 JWT Secret은 운영 비밀값과 분리된 테스트 전용 
 
 테스트 DB의 테이블 및 제약조건은 Flyway 마이그레이션으로 구성한다.
 
-실제 CI 실행에서 빈 데이터베이스에 Flyway V1 초기 마이그레이션이 성공적으로 적용되는 것을 확인했다.
+테스트 환경의 실제 연결 설정은 [application-test.yaml](../../src/test/resources/application-test.yaml), 적용할 스키마는 [Flyway SQL](../../src/main/resources/db/migration)을 기준으로 한다. 초기 V1 적용 결과는 CI 학습 문서의 당시 검증 기록으로 연결한다.
 
 ## 4. 검증 및 실패 처리
 
-위 구성은 현재 Workflow 파일을 기준으로 한다. 아래 32개 테스트·V1 검증은 초기 CI 구축 당시의 기록이며, 최신 Feature 5 전체 검증 결과로 해석하지 않는다.
-
 ### 4.1 검증 결과
 
-GitHub Actions 및 로컬 Docker 환경에서 다음 항목을 확인했다.
+실행 결과는 다음 기록에서 관리한다. 이 문서의 코드 설명을 이번에 CI·배포를 다시 실행한 결과로 해석하지 않는다.
 
-| 검증 항목 | 환경 | 결과 |
-|---|---|---|
-| PostgreSQL 연결 | CI | 성공 |
-| Spring `test` 프로필 활성화 | CI | 성공 |
-| Flyway V1 마이그레이션 | CI | 성공 |
-| Spotless 검사 | CI | 성공 |
-| 전체 32개 테스트 | CI | 통과 |
-| Gradle 빌드 | CI | 성공 |
-| 의도적 테스트 실패 감지 | CI | 확인 |
-| 실패 상황에서 테스트 리포트 업로드 | CI | 확인 |
-| main 병합 후 CI 실행 | CI | 성공 |
-| Docker 멀티스테이지 이미지 빌드 | CI | 성공 |
-| PR에서 `verify-image` 실행 | CI | 성공 |
-| PR에서 `publish-image` 건너뛰기 | CI | 확인 |
-| main Push에서 `publish-image` 실행 | CI | 성공 |
-| GHCR 이미지 게시 | GHCR | 성공 |
-| GHCR 이미지 다운로드 | 로컬 Docker | 성공 |
-| 게시된 이미지로 컨테이너 실행 | 로컬 Docker | 성공 |
-| PostgreSQL 연결 및 Flyway V1 적용 | 로컬 Docker | 성공 |
-| Spring Boot 정상 기동 | 로컬 Docker | 성공 |
-| 회원가입 API 요청 | 로컬 Docker | 성공 |
-| 로그인 API 요청 | 로컬 Docker | HTTP 200, Access Token 발급 확인 |
+| 확인할 내용 | 검증 기록 |
+|---|---|
+| 초기 CI 정상·의도적 실패 및 리포트 업로드 | [CI 학습 7절](../learning/infrastructure/github-actions-ci.md#7-정상-및-실패-동작-검증) |
+| GHCR 게시·다운로드·로컬 API 실행 | [GHCR 학습 9절](../learning/infrastructure/github-container-registry.md#9-최종-검증-결과와-향후-계획) |
+| 이미지 빌드 시간 개선 | [최적화 측정](../learning/infrastructure/multi-platform-ci-build-performance.md#8-최적화-적용-및-실제-측정-2026-11-14) |
+| SSH 최초 배포·S3/SSM 전환 | [CD 학습 7~8절](../learning/infrastructure/github-actions-cd.md#7-실제-최초-통합-검증) |
 
-기존 CI 구축 과정에서는 의도적 JUnit 실패 테스트를 통해 테스트 실패가 Gradle 및 GitHub Actions Job 실패로 전파되는 것을 확인했다.
-
-이후 Docker 이미지 빌드 검증 Job을 추가하여 PR에서 `build-and-test`와 `verify-image`가 모두 성공하는 것을 확인했다.
-
-PR #16에서는 `publish-image`가 Skipped 처리되었으며, 병합 이후 `main` Push 이벤트에서는 GHCR 이미지 게시가 정상적으로 완료되었다.
-
-게시된 이미지를 로컬 환경으로 다운로드한 뒤 기존 Docker Compose의 PostgreSQL 컨테이너와 연결하여 실행했다.
-
-실행 로그에서 PostgreSQL 연결, Flyway V1 마이그레이션, JPA 초기화 및 Spring Boot 정상 기동을 확인했다.
-
-추가로 회원가입 및 로그인 API를 호출하여 애플리케이션이 실제 HTTP 요청을 처리하고 PostgreSQL과 연동하는 것까지 검증했다.
-
-초기 검증 당시에는 Docker 이미지 빌드 실패 유도와 운영 서버 배포·CD 검증이 범위 밖이었다. 이후 SSH 기반 EC2 CD와 기본 HTTP 응답은 검증했다. 의도적인 이미지 빌드 실패 검증과 자동 롤백은 아직 수행하지 않았다.
-
-CI 구축 과정은 [GitHub Actions CI 학습 문서](../learning/infrastructure/github-actions-ci.md)에 기록하며, GHCR 게시 및 실행 과정은 별도의 학습 문서에서 정리한다.
+빌드·테스트, 이미지 게시, EC2 배포는 각각 다른 검증 단계다. PR의 빌드 성공으로 main 게시·운영 배포·자동 복구 성공까지 판단하지 않는다.
 
 ### 4.2 테스트 리포트
 
@@ -274,51 +234,11 @@ GitHub Actions는 해당 파일을 `test-reports` Artifact로 업로드한다.
 
 ### 5.1 GHCR 이미지 게시 자동화
 
-GitHub Actions에 `publish-image` Job을 추가하여 GHCR 이미지 게시 자동화를 구성하고, 실제 게시 및 실행 검증을 완료했다.
+이미지 게시의 선행 조건과 권한은 2절의 Job 표를 따른다. GHCR에는 `sha-<40자리 Git 커밋 SHA>` 태그를 사용한다. 기존 이미지의 두 아키텍처를 확인하여 재사용하고, 명시적인 미존재일 때만 빌드·게시한다. 인증·통신 오류나 불완전한 매니페스트는 실패 처리한다.
 
-주요 설정은 다음과 같다.
+[Dockerfile](../../Dockerfile)의 Builder는 `BUILDPLATFORM`의 JDK에서 JAR를 생성하고 Runtime은 대상 플랫폼별 JRE를 사용한다. PR 이미지와 main 이미지는 별도 빌드 결과이며, 테스트 Job의 JAR를 이미지 Job에 전달하는 구조는 아니다.
 
-- `main` Push 이벤트에서만 실행
-- `build-and-test` 성공 이후 실행
-- `GITHUB_TOKEN`으로 GHCR 인증
-- `packages: write` 권한을 게시 Job에만 부여
-- QEMU·Docker Buildx로 기존 멀티스테이지 Dockerfile의 AMD64·ARM64 이미지 빌드
-- 커밋 SHA 기반 이미지 태그 사용
-- 동일 SHA 이미지가 있으면 두 아키텍처를 확인하여 재사용하고, 없으면 `push: true`로 게시
-
-게시 대상 이미지 이름은 다음과 같다.
-
-```text
-ghcr.io/pickylemon/myshelf:sha-<커밋 SHA>
-```
-
-PR에서는 `verify-image`를 통해 이미지 빌드 가능 여부만 검증한다.
-
-`main`에서는 동일 SHA 이미지가 없으면 `publish-image`가 빌드·게시하고, 이미 있으면 아키텍처를 확인해 재사용한다. 따라서 PR에서 검증한 이미지와 `main`에서 게시한 이미지는 별도로 생성된 빌드 결과물이다.
-
-#### GHCR 게시 및 실행 검증
-
-PR #16 병합 이후 `main` Push 이벤트로 `publish-image`가 실행되었으며, GHCR 이미지 게시가 성공했다.
-
-게시된 이미지는 Private 패키지로 관리한다.
-
-로컬 환경에서는 `read:packages` 권한을 가진 Personal Access Token (classic)으로 GHCR에 인증한 뒤 이미지를 다운로드했다.
-
-이후 다운로드한 이미지를 `docker run`으로 실행하고 기존 PostgreSQL 컨테이너와 연결했다.
-
-검증 과정에서 다음 결과를 확인했다.
-
-- GHCR 이미지 Pull 성공
-- 게시된 이미지로 컨테이너 실행 성공
-- `local` 프로필 활성화
-- PostgreSQL 연결 및 Flyway V1 마이그레이션 성공
-- Spring Boot 정상 기동
-- 회원가입 API를 통한 테스트 사용자 등록 성공
-- 로그인 API HTTP 200 및 Access Token 발급 확인
-
-이를 통해 **CI에서 빌드하고 GHCR에 게시한 이미지를 로컬에서 다시 빌드하지 않고도 실제 애플리케이션 실행에 사용할 수 있음**을 확인했다.
-
-위 내용은 초기 GHCR 게시·로컬 실행 검증 기록이다. 이후 EC2 자동 배포를 구현했다. 현재는 CI의 Git 커밋 SHA 태그를 전달해 배포 버전을 연결하며, 이미지 Digest 고정은 적용하지 않았다.
+Git SHA 태그는 소스 커밋을 연결하는 이름이다. 레지스트리 전체에서 태그의 불변성을 보장하거나 이미지 Digest로 배포를 고정하지 않는다. GHCR 인증과 실제 실행 과정은 [GHCR 학습](../learning/infrastructure/github-container-registry.md)을 참고한다.
 
 ### 5.2 Jenkins 학습
 
@@ -362,7 +282,7 @@ Compose에는 프로젝트 이름 `myshelf`, 프로젝트 경로 `/opt/myshelf`,
 
 HTTP 검사는 EC2 내부 `http://127.0.0.1:8080/v3/api-docs`의 curl 성공 여부다. 정확히 HTTP 200만 허용하는 조건은 아니며, 전체 비즈니스 API나 데이터 복구를 검증하지 않는다. 앱 포트는 루프백에 바인딩하고 PostgreSQL·Redis 호스트 포트는 게시하지 않는다.
 
-2026-11-16 main CI #52의 이미지·S3 게시와 최초 이관 후 CD 재실행 성공을 확인했다. 정상 배포 성공을 자동 복구·데이터 보존·CI 재실행의 종합 검증으로 확대하지 않는다. [SSM 전환 기록](../learning/infrastructure/github-actions-cd.md#8-ssm-전환-및-실제-배포-검증)을 참고한다.
+실제 정상 배포·최초 이관 결과와 미검증 항목은 [SSM 전환 기록](../learning/infrastructure/github-actions-cd.md#8-ssm-전환-및-실제-배포-검증)에서 관리한다. 정상 배포 성공을 자동 복구·데이터 보존·CI 재실행의 종합 검증으로 확대하지 않는다.
 
 전용 Health Check, Digest 고정, 실패 복구 검증, HTTPS·외부 공개 및 운영 모니터링은 후속 범위다. SSH 키·보안 그룹·IAM 권한의 실제 정리는 워크플로 변경과 별도로 확인한다.
 

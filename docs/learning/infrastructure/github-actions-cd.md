@@ -14,37 +14,11 @@ MyShelf는 기존에 CI에서 Java 애플리케이션을 검증하고 GHCR에 Do
 
 ### 구성요소의 책임
 
-| 구성요소 | 책임 |
-| --- | --- |
-| `ci.yaml` | 빌드·테스트, 이미지 게시·재사용, 동일 SHA의 S3 배포 파일 게시·재사용 |
-| GHCR | `sha-<Git 커밋 SHA>` 태그 이미지 보관 |
-| S3 | 같은 커밋의 Compose 파일 두 개와 준비·활성화·배포 스크립트 보관 |
-| `cd.yaml` | CI 결과 확인, OIDC 인증, SSM 명령 전송 및 실제 종료 결과 확인 |
-| `prepare-release-ec2.sh` | 압축 파일 검증, SHA별 릴리스 준비·재사용 |
-| `activate-release-ec2.sh` | current 링크 전환, 배포 호출, 실패 시 이전 릴리스 복구 시도 |
-| `bootstrap-release-ec2.sh` | 기존 운영 파일의 최초 이관. 매 배포용 S3 묶음에서는 제외 |
-| `deploy-ec2.sh` | 이미지 Pull, `.env` 갱신, Compose 실행, HTTP 확인, 이력 기록 |
-| EC2 | `app`·`postgres`·`redis` 컨테이너 실행 |
+이 문서는 CI 완료 이벤트·버전 선택·원격 결과 확인의 원리와 실제 검증 기록을 다룬다. 현재 구성요소의 역할·전달 파일·배포 흐름은 [CI/CD 아키텍처](../../architecture/ci-cd.md#53-운영-배포-및-cd)를 기준으로 하며, 스크립트 내부 동작과 운영 조회 명령은 EC2 자동 배포 학습에서 설명한다.
 
 ## 2. 전체 흐름
 
-```mermaid
-flowchart TD
-    A[main Push] --> B[CI: 빌드 및 테스트]
-    B --> C[CI: GHCR 이미지 게시 또는 재사용]
-    C --> D[CI: S3 배포 파일 게시 또는 재사용]
-    D --> E{CI 워크플로 성공?}
-    E -- 아니오 --> X[배포 작업 건너뜀]
-    E -- 예 --> F[CD: OIDC 인증 및 SSM 명령]
-    F --> G[EC2: 잠금 획득 및 S3 다운로드]
-    G --> H[릴리스 검증 및 준비]
-    H --> I[current 전환 및 배포 스크립트 실행]
-    I --> J[이미지 Pull 및 Compose 실행]
-    J --> K[실행 이미지 및 HTTP 확인]
-    K --> L[배포 이력 및 SSM 종료 결과 확인]
-```
-
-`CI → CD`는 코드상의 직접 함수 호출이 아니라, GitHub Actions의 **워크플로 완료 이벤트**를 이용한 연결이다.
+CI가 게시한 결과물을 CD가 운영 환경에 적용한다. 두 워크플로는 직접 함수 호출이 아니라 **워크플로 완료 이벤트**로 연결된다. 현재 전체 흐름은 [아키텍처의 CI 구성](../../architecture/ci-cd.md#2-github-actions-ci-구성)과 [운영 배포](../../architecture/ci-cd.md#53-운영-배포-및-cd)를 함께 읽는다.
 
 ## 3. 왜 `workflow_run`인가?
 
@@ -123,15 +97,7 @@ NEW_IMAGE="ghcr.io/pickylemon/myshelf:sha-${DEPLOY_SHA}"
 
 ## 5. CD 워크플로 실행 단계
 
-| 순서 | 실행 위치 | 작업 |
-| --- | --- | --- |
-| 1 | GitHub Actions | OIDC로 AWS 임시 자격 증명 획득 |
-| 2 | GitHub Actions | SHA·버킷·실행 사용자를 검증하고 SSM 명령 전송 |
-| 3 | EC2 | ubuntu 사용자로 배포 잠금 획득 및 S3 다운로드 |
-| 4 | EC2 | 준비 스크립트가 파일·Compose 설정 검증 후 릴리스 준비 |
-| 5 | EC2 | 활성화 스크립트가 current를 전환하고 배포 스크립트 호출 |
-| 6 | EC2 | 이미지 Pull·환경변수 갱신·Compose 실행·HTTP 확인 |
-| 7 | GitHub Actions | SSM 실제 종료 상태와 표준 출력·오류 확인 |
+실제 단계와 원격 실행 경로는 [운영 배포 구조](../../architecture/ci-cd.md#53-운영-배포-및-cd)와 [cd.yaml](../../../.github/workflows/cd.yaml)을 따른다. 여기서는 **명령 접수와 실제 실행 결과를 구분해야 하는 이유**를 설명한다.
 
 SSM 요청 접수 성공과 배포 성공은 다르다. `Pending`·`InProgress`·`Delayed`·`Cancelling`이면 기다리고, `Success`이면 성공, `Failed`·`Cancelled`·`TimedOut`이면 실패 처리한다. 결과 대기 초과도 실패로 처리한다.
 
@@ -139,16 +105,9 @@ GitHub Actions의 concurrency와 EC2의 `flock` 잠금으로 중복 배포를 �
 
 ## 6. 배포 성공의 의미
 
-`CD` Job 성공은 **해당 워크플로 안에서 정의한 검증을 통과했다**는 의미다. 현재의 핵심 검증은 다음과 같다.
+`CD` Job 성공은 **해당 워크플로 안에서 정의한 검증을 통과했다**는 의미다. 이미지 Pull·Compose 실행 이후 실행 이미지와 기본 HTTP 응답을 확인하고, 이력 기록과 SSM 최종 성공까지 이어져야 한다. 세부 조건은 [현재 배포 구조](../../architecture/ci-cd.md#53-운영-배포-및-cd)를 따른다.
 
-1. 새 이미지 Pull 성공
-2. Docker Compose 명령 성공
-3. 실행 중인 `app` 컨테이너의 이미지 태그가 목표 태그와 일치
-4. `http://127.0.0.1:8080/v3/api-docs` HTTP 확인 성공
-5. 배포 성공 이력 기록
-6. SSM 원격 실행의 최종 성공 상태 확인
-
-이 검증은 **기본 배포 확인**이지 전체 비즈니스 API, 데이터 영속성, 성능, 장애 자동 복구까지 보장하지는 않는다.
+전체 비즈니스 API, 데이터 영속성, 성능, 장애 자동 복구까지 검증했다는 뜻은 아니다. 아래 실제 기록에서도 관찰한 결과와 코드상 검증 범위를 구분한다.
 
 ## 7. 실제 최초 통합 검증
 

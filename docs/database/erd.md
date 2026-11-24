@@ -117,26 +117,9 @@ V6에서 추가했던 UserBook 메모는 V7에서 제거하고 ShelfBook으로 �
 - FK: `reading_status_code` → `reading_statuses.code`
 - UNIQUE: `uk_user_books_user_isbn` (`user_id`, `isbn`)
 
-**도서 식별 정책**
+**도서 식별·생명주기 정책 참조**
 
-- 외부 도서 API에서 조회된 책을 등록 대상으로 한다.
-- 초기에는 ISBN이 존재하는 책만 등록한다.
-- 동일 사용자는 동일 ISBN을 가진 도서를 중복 등록할 수 없다.
-- 서로 다른 사용자는 동일 ISBN의 도서를 각각 등록할 수 있다.
-- 동일 작품이라도 ISBN이 다르면 서로 다른 도서로 취급한다.
-- ISBN은 외부 검색 식별값을 그대로 사용한다. 현재 하이픈 제거·ISBN-10/13 변환·체크섬 검증은 하지 않는다. 요청 검증은 누락·공백을 거부한다.
-
-**UserBook 생명주기**
-
-UserBook은 현재 Shelf에 배치된 책만을 의미하지 않는다.
-
-사용자가 한 번 등록한 책의 정보를 보존하는 엔티티이며, 모든 Shelf에서 제거되더라도 삭제하지 않는다.
-
-- Shelf에서 책 제거 시 해당 ShelfBook 관계만 삭제한다.
-- 마지막 ShelfBook이 제거되어도 UserBook은 유지한다.
-- 별도의 Soft Delete는 도입하지 않는다.
-- 다시 Shelf에 추가할 때 기존 UserBook을 재사용할 수 있다.
-- 독서 상태는 UserBook에 저장하며 Shelf에 종속되지 않는다.
+`UNIQUE(user_id, isbn)`은 사용자별 ISBN 중복 생성을 막는다. 입력 검증·재사용·재등록과 데이터 보존의 계약은 [현행 도서 관리 정책](../planning/book-management-policy.md)을 따른다. 이 문서는 컬럼·제약·관계를 설명하고 등록 정책 전체를 중복 정의하지 않는다.
 
 ### 2.5 shelf_books
 
@@ -165,7 +148,9 @@ Shelf와 UserBook의 M:N 관계를 표현하는 연결 엔티티.
 
 하나의 UserBook은 여러 Shelf에 연결할 수 있으며, 각 Shelf의 배치 순서는 독립적으로 관리한다.
 
-`position`은 nullable이며 사용자 지정 순서 변경 API는 Feature 6 범위다. 수정 시각 갱신은 JPA의 `@UpdateTimestamp`가 담당한다. DB DEFAULT는 UPDATE마다 실행되는 설정이 아니다. 현재 목록 정렬과 메모 수명 정책은 [Feature 5](../planning/feature-5-book-management.md#33-shelfbook과-데이터-보존)를 참고한다.
+`position`은 nullable이며 사용자 지정 순서 변경 API는 Feature 6 범위다. 수정 시각 갱신은 JPA의 `@UpdateTimestamp`가 담당한다. DB DEFAULT는 UPDATE마다 실행되는 설정이 아니다. 목록 정렬은 [목록 조회 구조](../architecture/book-management.md#5-목록-조회와-모델-변환), 메모 수명은 [현행 정책](../planning/book-management-policy.md#4-메모와-삭제-후-데이터-보존)을 참고한다.
+
+메모의 요청 검증은 [ShelfBookMemoUpdateRequest](../../src/main/java/com/myshelf/book/adapter/in/web/shelfBook/ShelfBookMemoUpdateRequest.java)의 UTF-16 길이, DB CHECK는 문자 수를 기준으로 한다. 일부 이모지는 계산이 달라 요청 검증이 DB보다 엄격할 수 있다. 실제 CHECK 정의는 V7을 확인한다.
 
 ## 3. Relationships
 
@@ -193,24 +178,15 @@ ShelfBook 생성 시 연결 대상인 Shelf와 UserBook이 모두 인증된 사�
 
 ### Shelf 관리
 
-- 사용자는 여러 Shelf를 생성할 수 있다.
-- Shelf는 사용자에게 종속된다.
-- 비어 있는 Shelf도 존재할 수 있다.
+빈 Shelf·이름 중복·사용자 소유권은 [Feature 4](../planning/feature-4-shelf-management.md)에서 관리한다.
 
 ### 도서 관리
 
-- 한 사용자의 동일 ISBN은 하나의 UserBook으로 관리한다.
-- 하나의 UserBook은 여러 Shelf에 배치할 수 있다.
-- Shelf별 도서 배치 순서는 독립적이다.
-- 독서 상태는 UserBook에서 관리하므로 어느 Shelf에서 조회해도 동일하다.
+등록·메모·독서 상태와 연결 보존의 기준은 [현행 도서 관리 정책](../planning/book-management-policy.md)이다. DB가 보장하는 범위는 위 FK·UNIQUE·CHECK 정의를 따른다.
 
 ### 도서 제거 및 조회
 
-- Shelf에서 책을 제거하면 해당 ShelfBook 관계만 삭제한다.
-- ShelfBook 관계가 모두 제거되어도 UserBook은 보존한다.
-- 전체 보관 도서 조회에서는 현재 하나 이상의 ShelfBook에 연결된 UserBook만 반환한다.
-- Shelf별 도서 조회는 ShelfBook 관계를 기준으로 수행한다.
-- Shelf에 속하지 않는 UserBook은 현재 보관 중인 도서 목록에 표시하지 않는다.
+현재 연결을 통한 Shelf별 목록과, 보존된 UserBook 행의 존재 여부를 구분한다. 전체 도서 조회의 포함 조건은 [Feature 6](../planning/feature-6-book-browsing-and-ordering.md)의 후속 계약이며 구현 완료를 뜻하지 않는다.
 
 ### 다른 도메인과의 연관
 

@@ -2,7 +2,7 @@
 
 MyShelf 데이터베이스 설계 과정에서 결정한 주요 사항과 선택 근거를 기록한다.
 
-실제 테이블 구조는 Flyway 마이그레이션을, 엔티티 관계 및 상세 설명은 `erd.md`를 기준으로 확인한다.
+실제 테이블 구조는 [Flyway SQL](../../src/main/resources/db/migration), 현재 컬럼·관계는 [ERD 설명](erd.md)을 기준으로 확인한다. 이 문서는 스키마 선택의 이유와 제약을 요약하며, 개별 비즈니스 정책이나 전체 마이그레이션 목록을 중복 관리하지 않는다.
 
 ## 1. 별도의 Books 테이블을 두지 않는다
 
@@ -14,7 +14,7 @@ MyShelf 데이터베이스 설계 과정에서 결정한 주요 사항과 선택
 - 사용자별 독서 상태와 도서 등록 이력을 UserBook에서 관리한다.
 - Shelf 표시를 위해 최소한의 도서정보를 저장한다.
 
-**트레이드오프:** 동일 ISBN의 도서정보가 사용자별로 중복 저장될 수 있다. 현재 규모에서는 이를 허용한다.
+**트레이드오프:** 동일 ISBN의 도서정보가 사용자별로 중복 저장될 수 있다. 현재 규모에서는 이를 허용한다. 공통 Book과 사용자별 스냅샷을 비교한 상세 근거는 [ADR-011](../decisions/011-user-book-metadata-snapshot.md)에 보존한다.
 
 ## 2. ISBN을 사용자별 도서 식별 기준으로 사용한다
 
@@ -25,7 +25,7 @@ MyShelf 데이터베이스 설계 과정에서 결정한 주요 사항과 선택
 - 같은 작품이라도 ISBN이 다른 판본은 별개 도서로 허용한다.
 - 초기에는 외부 API에서 조회된 ISBN이 있는 책만 등록한다.
 
-현재는 외부 검색에서 제공한 ISBN을 그대로 사용하며 정규화하지 않는다. 입력 검증과 재조회 정책은 [Feature 5의 ISBN 정책](../planning/feature-5-book-management.md#32-userbook과-isbn)을 따른다.
+입력 검증·재사용 등 현재 ISBN 계약은 [현행 도서 관리 정책](../planning/book-management-policy.md#1-등록과-도서-식별)을 따른다. 메타데이터 확보 순서는 도서 관리 아키텍처에서 확인한다.
 
 ## 3. UserBook과 ShelfBook의 생명주기를 분리한다
 
@@ -38,7 +38,7 @@ MyShelf 데이터베이스 설계 과정에서 결정한 주요 사항과 선택
 
 별도의 Soft Delete는 도입하지 않는다.
 
-현재 관리 대상의 기준은 ShelfBook 연결 여부다. 전체 도서 목록 API는 Feature 6에서 이 조건을 적용할 예정이며, Shelf별 목록 API는 현재 연결을 조회한다. 독서 상태는 UserBook, 메모·위치는 ShelfBook에 속한다. V6은 Shelf 삭제 시 연결만 CASCADE로 제거하고 V7은 메모 이동·길이 제약·ShelfBook 수정 시각을 정의한다.
+수명·재등록의 상세 계약은 [현행 도서 관리 정책](../planning/book-management-policy.md)을 따른다. 소프트 삭제 없이 연결을 기준으로 판단한 원리는 [학습 기록](../learning/database/soft-delete-and-source-of-truth.md), 현재 컬럼과 마이그레이션별 반영은 ERD 설명에서 관리한다.
 
 ## 4. 독서 상태는 Lookup Table로 관리한다
 

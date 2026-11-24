@@ -1,5 +1,7 @@
 # 소프트 삭제 판단 기준: 관리 대상의 단일 기준과 상태 분산
 
+Feature 5에서 소프트 삭제 여부를 검토한 학습 기록이다. 아래 규칙과 구현 설명은 당시 판단의 맥락이며, 이후 변경은 [현행 도서 관리 정책](../../planning/book-management-policy.md)과 [도서 관리 구조](../../architecture/book-management.md)에서 확인한다.
+
 ## 1. 고민의 출발점
 
 MyShelf에서 `UserBook`은 `(user_id, isbn)`으로 사용자별 도서를 식별하고, `ShelfBook`은 도서와 서재의 연결을 나타낸다.
@@ -31,16 +33,9 @@ SELECT EXISTS (
 
 ## 3. MyShelf에서의 선택
 
-| 상황 | 처리 |
-|---|---|
-| 일부 서재에서 책 제거 | 공유 독서 상태와 다른 ShelfBook의 메모 유지. 삭제한 연결의 메모는 함께 제거 |
-| 마지막 서재에서 제거 | UserBook은 보존하지만 관리 대상에서 제외 |
-| 연결 0건인 책 재등록 | 기존 행을 재사용하며 [Feature 5의 등록 정책](../../planning/feature-5-book-management.md#36-등록-시-독서-상태와-재등록-처리)에 따라 처리 |
-| 전체 도서 목록 조회 | `EXISTS`로 연결이 있는 UserBook만 조회할 계획. API는 Feature 6 범위 |
+현 단계에서는 **`delete_yn`을 추가하지 않고 ShelfBook 존재 여부를 관리 대상의 기준으로 사용**한다. 같은 사실을 두 곳에서 갱신하는 책임을 피하기 위한 선택이다.
 
-따라서 현 단계에서는 **`delete_yn`을 추가하지 않고 ShelfBook 존재 여부를 기준으로 판단**하기로 했다. `shelf_books.user_book_id` 인덱스도 이미 존재한다.
-
-메모는 이제 UserBook이 아닌 ShelfBook에 속하므로, 등록 코드에서 연결 0건을 조회해 UserBook 메모를 초기화할 필요가 없다. 독서 상태 적용과 새 연결 생성은 Writer의 트랜잭션으로 묶는다. 전체 목록의 포함 조건과 등록 분기를 혼동하지 않는다.
+당시 삭제·재등록 규칙은 [Feature 5 기록](../../planning/feature-5-book-management.md#33-shelfbook과-데이터-보존)에 남아 있다. 이후 현재 계약은 상단의 현행 정책 링크에서 확인한다. 위 EXISTS 예시는 관리 대상 판별 원리를 설명하며, 등록 때 연결 수를 조회해 UserBook 메모를 초기화한다는 뜻은 아니다. 당시 전체 목록 API는 후속 범위였다.
 
 ## 4. 소프트 삭제가 적절한 경우
 

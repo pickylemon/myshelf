@@ -1,5 +1,7 @@
 # Feature 4 — Shelf 관리 및 후속 도서 기능 기획
 
+> 이 문서는 Shelf CRUD의 개발 기록과 후속 도서 기능의 기획 맥락을 보존한다. Feature 5의 후속 정리도 포함하므로 모든 내용을 Feature 4 개발 당시의 확정 사항으로 해석하지 않는다. 현재 도서 규칙은 [현행 도서 관리 정책](book-management-policy.md)에서 확인한다.
+
 > 상태: Shelf CRUD 구현·테스트 완료, main 병합 (PR #23). 후속 도서 검색·등록·관리는 Feature 5에서 구현·병합 완료 (PR #25)
 >
 > 범위: Feature 4는 Shelf 자체 관리. 도서 탐색·등록·연결·독서 상태는 후속 기획으로 보존
@@ -13,7 +15,7 @@ MyShelf는 독서와 필사를 통해 개인의 취향을 아카이빙하는 서
 
 Feature 4에서는 Shelf 생성·목록/상세 조회·수정·삭제와 사용자별 접근 통제를 구현한다. 도서 검색·등록, UserBook·ShelfBook 연결 및 독서 상태 관리는 Feature 5에서 다룬다.
 
-이 문서는 초기 도서·Shelf 통합 기획도 포함한다. 아래 도서 관련 요구사항은 Feature 4 당시의 기획 배경으로 보존하며, 전체 구현 완료를 뜻하지 않는다. 등록·관리의 최신 계약은 [Feature 5](./feature-5-book-management.md), 조회 확장·사용자 지정 정렬은 [Feature 6](./feature-6-book-browsing-and-ordering.md)을 기준으로 한다.
+이 문서는 초기 도서·Shelf 통합 기획도 포함한다. 아래 도서 관련 요구사항은 기획 배경으로 보존하며, 전체 구현 완료를 뜻하지 않는다. 등록·관리의 현재 계약은 [현행 정책](book-management-policy.md), Feature 5의 개발 결과는 [Feature 5 기록](feature-5-book-management.md), 조회 확장·사용자 지정 정렬은 [Feature 6](feature-6-book-browsing-and-ordering.md)에서 확인한다.
 
 Shelf는 실제로 소유한 책을 보관하는 물리적인 책장이 아니라, **읽었거나 읽고 싶은 책을 자신의 기준으로 모으고 배치하는 디지털 보드**다.
 
@@ -141,71 +143,23 @@ Shelf 목록 조회와 Shelf 생성 자체에는 기존 `shelf_id`가 필요하�
 
 ### 3.2. 도서 식별 및 중복 등록
 
-MyShelf는 사용자별 도서 식별 기준으로 ISBN을 사용한다.
-
-- 초기에는 ISBN이 있는 도서만 등록한다.
-- 동일 사용자는 동일 ISBN을 가진 도서를 중복 등록할 수 없다.
-- 서로 다른 사용자는 동일 ISBN의 도서를 각각 등록할 수 있다.
-- 동일한 작품이라도 ISBN이 다르면 다른 판본으로 취급하고 별도 등록을 허용한다.
-- ISBN은 현재 외부 검색 식별값을 그대로 사용한다. 입력·재조회 계약은 [Feature 5 정책](./feature-5-book-management.md#32-userbook과-isbn)을 따른다.
-
-데이터베이스에서는 `(user_id, isbn)` UNIQUE 제약으로 동일 사용자의 중복 등록을 방지한다.
-
-같은 사용자가 이미 등록한 ISBN의 책을 다른 Shelf에 추가하는 경우, 새로운 UserBook을 생성하지 않고 기존 UserBook을 재사용한다.
-
-도서정보의 원본은 외부 도서 API이며, MyShelf는 Shelf 표시 및 사용자별 관리를 위해 필요한 메타데이터를 저장한다.
-
-별도의 공용 `books` 테이블은 두지 않는다.
+후속 개발에서 정리한 도서 식별·재사용·중복 처리의 당시 내용은 [Feature 5의 UserBook·ISBN 기록](./feature-5-book-management.md#32-userbook과-isbn)과 [동일 Shelf 중복 처리 기록](./feature-5-book-management.md#35-동일-shelf의-중복-등록-처리)을 참고한다. Shelf CRUD의 이름 중복 검사와 도서 등록의 중복 항목 제외는 다른 정책이다.
 
 ### 3.3. 도서와 Shelf의 관계
 
-- 하나의 UserBook은 여러 Shelf에 동시에 속할 수 있다.
-- 하나의 Shelf에는 여러 UserBook을 배치할 수 있다.
-- Shelf와 UserBook의 연결은 ShelfBook으로 관리한다.
-- 동일 Shelf에 동일 UserBook을 중복 배치할 수 없다.
-- 독서 상태는 UserBook에 저장되며 모든 Shelf에서 동일하게 적용된다.
-- Shelf별 책의 배치 순서는 독립적으로 관리한다.
-- 특정 Shelf에서 책을 제거해도 다른 Shelf의 동일 UserBook에는 영향을 주지 않는다.
-
-현재 Shelf에 보관 중인 도서는 하나 이상의 ShelfBook 관계가 존재하는 UserBook을 의미한다.
-
-반면 UserBook 자체는 과거에 등록했다가 모든 Shelf에서 제거한 책까지 보존할 수 있다.
+Shelf와 UserBook은 ShelfBook으로 연결되며 독서 상태는 UserBook, 서재별 메모·위치는 ShelfBook에 속한다. 관계의 보존·삭제·정렬 계약은 [Feature 5의 데이터 보존 정책](./feature-5-book-management.md#33-shelfbook과-데이터-보존)을 기준으로 한다.
 
 ### 3.4. 전체 도서 목록
 
-전체 도서 목록은 **사용자의 모든 Shelf에 현재 속해 있는 책을 중복 없이 조회하는 논리적인 범위**다.
-
-이를 위한 별도의 전체 도서 Shelf 엔티티는 생성하지 않는다.
-
-- UserBook을 기준으로 중복 없이 조회한다.
-- ShelfBook 관계가 하나 이상 존재하는 UserBook만 포함한다.
-- 여러 Shelf에 같은 UserBook이 있어도 한 번만 표시한다.
-- 모든 Shelf에서 제거된 UserBook은 전체 도서 목록에 표시하지 않는다.
-- 외부 도서 검색 결과는 Shelf에 추가하기 전까지 전체 도서 목록에 포함되지 않는다.
+현재 Shelf에 연결된 도서를 중복 없이 탐색하는 기능은 [Feature 6](./feature-6-book-browsing-and-ordering.md) 범위다. 별도의 전체 도서 Shelf를 만들지 않는 제품 방향은 [서비스 기획](./myshelf-product-overview.md#22-shelf--나만의-책장)을 참고한다.
 
 ### 3.5. 도서 제거 및 데이터 보존
 
-사용자는 개별 Shelf에서 책을 제거할 수 있다.
-
-- Shelf에서 책을 제거할 때 해당 ShelfBook 관계만 삭제한다.
-- 다른 Shelf에 연결된 동일 UserBook은 영향을 받지 않는다.
-- 마지막 ShelfBook이 제거되어도 UserBook은 삭제하지 않는다.
-- UserBook의 독서 상태와 관련 기록은 유지한다.
-- 마지막 Shelf에서 제거된 책은 전체 도서 목록에서 제외한다.
-- MyShelf 전체에서 책을 일괄 삭제하는 별도 기능은 제공하지 않는다.
-- UserBook에 대한 Soft Delete는 도입하지 않는다.
-
-이를 통해 향후 문장 수집 및 필사 기록이 UserBook을 참조하더라도 Shelf 소속 변경과 관계없이 기록을 유지할 수 있다.
+Shelf 자체의 삭제는 Feature 4 기능이고, 연결된 도서의 보존 계약과 CASCADE 검증은 Feature 5에서 다룬다. [Feature 5의 데이터 보존 정책](./feature-5-book-management.md#33-shelfbook과-데이터-보존)을 따른다. 소프트 삭제를 별도로 두지 않은 판단 과정은 [학습 기록](../learning/database/soft-delete-and-source-of-truth.md)에 남긴다.
 
 ### 3.6. 사용자별 데이터 격리
 
-- 사용자는 자신의 Shelf와 UserBook만 관리할 수 있다.
-- 다른 사용자의 독서 상태, Shelf 구성 및 배치 순서를 조회하거나 변경할 수 없다.
-- ShelfBook을 생성할 때 Shelf와 UserBook이 모두 인증된 사용자의 데이터인지 확인한다.
-- Shelf와 UserBook의 `user_id` 일치 여부는 애플리케이션 계층에서 검증한다.
-- DB에서는 FK와 UNIQUE 제약으로 기본적인 참조 무결성과 중복 방지를 보장한다.
-
-다른 사용자의 데이터와 연결하는 요청은 허용하지 않는다.
+본인의 Shelf만 생성·조회·수정·삭제할 수 있다. 미존재·타인 소유 Shelf는 구분하지 않고 404로 처리한다. 공통 접근·삭제 응답의 선택 근거는 [ADR-010](../decisions/010-private-resource-access-policy.md), 도서 연결 양쪽 소유권 계약은 [Feature 5](./feature-5-book-management.md#34-사용자별-접근-통제)를 따른다.
 
 ## 4. 핵심 사용자 시나리오
 
@@ -228,7 +182,7 @@ MyShelf는 사용자별 도서 식별 기준으로 ISBN을 사용한다.
 
 ## 5. 후속 정책의 현재 상태
 
-초기 기획의 논의 사항 중 Feature 5에서 정한 계약과 아직 남은 항목을 구분한다. 세부 정책은 해당 Feature 문서에서 관리한다.
+초기 기획에 대한 Feature 5 종료 시점의 후속 정리다. 아래 상태는 당시 기록으로 보존하며, 현재 규칙은 현행 정책 문서와 진행 중인 Feature 계획에서 확인한다.
 
 | 주제 | 논의 사항 |
 |---|---|
@@ -238,7 +192,7 @@ MyShelf는 사용자별 도서 식별 기준으로 ISBN을 사용한다.
 | Shelf 삭제 | V6의 CASCADE로 연결된 ShelfBook만 삭제하며 UserBook·다른 Shelf 연결 보존 |
 | 책 순서 변경 | `position`의 시작값, 중복 허용 여부, 순서 변경 방식 |
 | 검색·정렬 | 외부 검색·더 보기와 Shelf별 목록·기본 정렬은 구현. 조회 확장·사용자 지정 정렬은 Feature 6 |
-| ISBN 정규화 | 현재 미적용. 필요성이 확인되면 Feature 5의 기준 정책을 변경 |
+| ISBN 정규화 | 당시 미적용. 향후 도입 시 현행 정책을 변경하고 이 기록은 보존 |
 | 도서정보 | 외부 API에서 검색되지 않거나 ISBN이 없는 책의 향후 지원 여부 |
 
 확정되지 않은 정책을 구현 편의에 따라 임의로 결정하지 않는다.
@@ -282,21 +236,7 @@ Feature 4는 Shelf 자체의 CRUD에 집중하고, 도서 연결 기능은 Featu
 
 ### 6.2. 도서 기능의 후속 완료 기준
 
-다음은 기존 Shelf CRUD 이후의 도서 관리 시나리오다. 등록·상태 변경·연결 삭제·Shelf별 최소 목록은 [Feature 5](./feature-5-book-management.md), 전체·상세 조회와 순서 변경은 [Feature 6](./feature-6-book-browsing-and-ordering.md)에서 다룬다. 이를 Feature 4 종료 조건에 포함하지 않는다.
-
-- 사용자가 Shelf를 먼저 생성하거나 선택한 뒤 도서를 탐색할 수 있다.
-- 외부 도서정보를 검색하고 특정 Shelf에 책을 등록할 수 있다.
-- 기존 Shelf CRUD와 도서 연결 기능을 함께 사용할 수 있다.
-- 동일 ISBN의 UserBook이 사용자별로 중복 생성되지 않는다.
-- 동일한 UserBook을 여러 Shelf에 배치할 수 있다.
-- 전체 도서 목록은 현재 Shelf에 속한 책을 중복 없이 보여준다.
-- 등록한 도서의 정보 및 독서 상태를 조회·변경할 수 있다.
-- 같은 책의 독서 상태 변경이 모든 Shelf에 동일하게 반영된다.
-- Shelf별로 책의 배치 순서를 독립적으로 변경할 수 있다.
-- 한 Shelf에서 책을 제거해도 다른 Shelf에 속한 동일한 책에는 영향을 주지 않는다.
-- 마지막 Shelf에서 제거된 책은 전체 도서 목록에 나타나지 않지만 UserBook은 보존된다.
-- 다른 사용자의 도서 및 Shelf 데이터에 접근하거나 이를 변경할 수 없다.
-- 추가 합의한 도서 등록, Shelf 삭제, 상태 변경 정책을 테스트로 검증한다.
+Shelf 생성·선택에서 이어지는 도서 시나리오의 완료 기준은 [Feature 5](./feature-5-book-management.md#63-feature-5-종료-기준)와 [Feature 6](./feature-6-book-browsing-and-ordering.md#4-완료-기준)에서 각각 관리한다. 해당 기능들의 체크리스트를 Feature 4에 중복 유지하거나 Shelf CRUD 종료 조건에 포함하지 않는다.
 
 ## 7. 이번 Feature의 제외 범위
 

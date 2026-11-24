@@ -1,5 +1,7 @@
 # Feature 5 — 도서 검색·등록 및 Shelf 연동
 
+> 이 문서는 Feature 5의 개발 범위·정책·검증 기록을 보존한다. 이후 정책 변경은 [현행 도서 관리 정책](book-management-policy.md)에 반영하며, 이 문서의 당시 정책을 소급 변경하지 않는다. 아래 설계 링크는 현재 구현을 확인하기 위한 안내다.
+
 > 상태: **구현·테스트 완료, main 병합 (PR #25)** — 검색·등록·서재별 메모 수정·독서 상태 변경·ShelfBook 다건 삭제·Shelf별 목록 조회 검증 완료. 후속 작업으로 SSH 기반 EC2 CD와 기본 HTTP 배포 검증도 완료했으며, 전체 비즈니스 API의 운영 검증과는 구분함
 >
 > 범위: 외부 도서 탐색, UserBook 등록·독서 상태 변경, ShelfBook 연결·메모·삭제, Shelf별 도서 목록 조회
@@ -8,7 +10,7 @@
 >
 > 상위 문서: [MyShelf 서비스 기획 개요](./myshelf-product-overview.md)
 >
-> 데이터 모델: [ERD](../database/myshelf-erd.png)
+> 데이터 모델: [ERD 설명](../database/erd.md)
 >
 > 관련 설계: [도서 검색 아키텍처](../architecture/book-search.md) · [상태 유지형 검색 페이징 ADR](../decisions/012-stateful-book-search-pagination.md)
 
@@ -39,7 +41,7 @@ Feature 5에서는 사용자가 **자신의 Shelf에 도서를 추가하고, 여
 
 ## 3. 확정된 비즈니스 정책
 
-등록·변경 코드와 DB 마이그레이션을 기준으로 정리한 정책이다. 구현과 테스트 완료 여부는 6절에서 구분한다. 마이그레이션 파일의 존재가 실제 DB 적용 완료를 뜻하지는 않는다.
+Feature 5 종료 시점의 등록·변경 코드와 DB 마이그레이션을 기준으로 정리한 정책이다. 구현과 테스트 완료 여부는 6절에서 구분한다. 마이그레이션 파일의 존재가 실제 DB 적용 완료를 뜻하지는 않는다.
 
 ### 3.1. Shelf 중심 등록 흐름
 
@@ -59,7 +61,7 @@ Feature 5에서는 사용자가 **자신의 Shelf에 도서를 추가하고, 여
 - 출판예정일(`PUBLISH_PREDATE`)은 실제 출판일과 구분하며 검색 표시용으로 취급한다.
 - 등록 요청의 ISBN은 검색 결과로 제공한 외부 식별값을 그대로 사용한다. 누락·공백만 거부하며 길이·패턴·체크섬 검증, 하이픈 제거, ISBN-10/13 변환은 적용하지 않는다.
 - 신규 UserBook의 메타데이터는 ISBN별 Redis 캐시에서 조회한다. 캐시에 없으면 외부 API의 ISBN 검색을 한 번 호출하고, 첫 페이지에서 요청 ISBN과 정확히 같은 항목 하나를 선택한다. 첫 페이지에서 찾지 못해도 전체 외부 데이터에 도서가 없음을 보장하는 것은 아니며, 실제 응답에서 추가 페이지 문제가 확인되면 정책을 재검토한다.
-- 검색 페이징 상태와 메타데이터 캐시는 별개다. 메타데이터는 사용자 간 공유하며 저장 시 30분 TTL을 적용한다. 기존 UserBook을 재사용할 때는 외부 메타데이터를 다시 조회하지 않는다.
+- 검색 페이징 상태와 메타데이터 캐시는 별개다. 기존 UserBook은 보관된 메타데이터를 재사용한다. 키·수명·프로필별 저장소·호출 순서는 [검색 아키텍처](../architecture/book-search.md#메타데이터-캐시와-검색-세션)에서 관리한다.
 - 메타데이터 캐시 조회 장애는 오류로 처리한다. 저장의 연결 실패·타임아웃은 기록하고 계속 진행한다. 신규 메타데이터를 확보하지 못하면 등록 요청 전체를 실패시킨다.
 
 ### 3.3. ShelfBook과 데이터 보존
@@ -71,7 +73,7 @@ Feature 5에서는 사용자가 **자신의 Shelf에 도서를 추가하고, 여
 - 전체 도서 목록은 **현재 하나 이상의 Shelf에 배치된 UserBook만** 포함한다.
 - 도서의 독서 상태는 ShelfBook이 아니라 UserBook에 속한다.
 - 메모는 ShelfBook에 속하며 서재마다 독립적이다. 새 연결의 메모는 null이고, 연결 삭제 시 해당 메모도 삭제된다.
-- 메모는 null을 허용하며 요청 DTO에 `@Size(max = 2_000)`, V7에 `char_length(memo) <= 2000` CHECK 제약이 있다. Java 검증은 UTF-16 길이, DB 검증은 문자 수 기준이므로 일부 이모지의 계산은 다를 수 있다.
+- 메모는 null을 허용하고 최대 2,000자로 제한한다. 요청 DTO는 UTF-16 길이, DB 제약은 문자 수로 검사하므로 일부 이모지의 계산은 다를 수 있다. 실제 제약 정의는 [ERD 설명](../database/erd.md#25-shelf_books)과 DTO·V7을 대조한다.
 - V6에 ShelfBook 생성 시각, V7에 수정 시각을 정의한다. 목록은 위치 지정 도서 우선 → position 오름차순 → 수정 시각 내림차순 → ID 내림차순으로 반환한다. 메모 수정으로 수정 시각이 바뀌면 위치 미지정 도서의 순서도 바뀐다. 사용자 지정 순서 변경 API는 Feature 6 범위다.
 - Shelf 삭제 시 V6의 `ON DELETE CASCADE`로 ShelfBook을 제거하고 UserBook은 보존한다. 연관 데이터가 있는 삭제와 다른 연결·메모 보존은 `ShelfBookManagementIntegrationTest`에서 검증한다.
 
@@ -108,26 +110,27 @@ Feature 5에서는 사용자가 **자신의 Shelf에 도서를 추가하고, 여
 
 재등록 시 독서 상태는 요청값을 적용하고, 삭제된 ShelfBook의 메모를 복원하지 않는다. UserBook의 메모 초기화 분기는 더 이상 없다. 기존 메타데이터는 자동 갱신하지 않으며, 독서 상태 변경은 해당 UserBook을 공유하는 모든 Shelf에 반영된다.
 
-이 문서의 3.5~3.6절을 등록 정책의 기준으로 사용한다. ADR·학습 문서·임시 구현 제안서는 세부 정책을 따로 정의하지 않고 이 절을 참조한다. 정책 확정과 실제 구현·테스트 완료 여부는 구분한다.
+3.5~3.6절은 Feature 5에서 적용한 등록 정책의 기록이다. 이후 변경에 적용할 기준은 현행 정책 문서이며, 당시 완료 결과는 이 문서에 보존한다. 정책 확정과 실제 구현·테스트 완료 여부는 구분한다.
 
 ### 3.7. 수정·다건 삭제 API
 
-| API | 요청 | 성공 응답 |
-|---|---|---|
-| `POST /shelves/{shelfId}/books` | `books`: ISBN·필수 독서 상태 목록 | 200, `books`: ISBN·ShelfBook ID 목록 |
-| `PATCH /shelf-books/{shelfBookId}` | `memo` | 204 |
-| `PATCH /user-books/{userBookId}` | 필수 `readingStatus` | 204 |
-| `DELETE /shelf-books` | `shelfBookIds` 목록 | 204 |
-| `GET /shelves/{shelfId}/books` | 경로의 Shelf ID | 200, `ShelfBookItem` 배열 |
+이 절은 입력·소유권·실패 시 처리 정책을 정의한다. 경로·요청 DTO·성공 응답의 실제 계약은 다음 웹 Adapter와 생성 OpenAPI를 기준으로 확인한다.
+
+- [등록 Controller](../../src/main/java/com/myshelf/book/adapter/in/web/registration/ShelfBookAddController.java)
+- [메모·다건 삭제 Controller](../../src/main/java/com/myshelf/book/adapter/in/web/shelfBook/ShelfBookController.java)
+- [독서 상태 Controller](../../src/main/java/com/myshelf/book/adapter/in/web/userBook/UserBookController.java)
+- [Shelf·도서 목록 Controller](../../src/main/java/com/myshelf/shelf/adapter/in/web/ShelfController.java)
 
 - ShelfBook의 조회·변경·삭제는 연결된 Shelf의 소유권을 기준으로 확인한다. UserBook의 독서 상태 변경은 UserBook 소유권을 확인한다.
 - 미존재·타인 소유 대상은 구분하지 않고 404를 반환한다.
 - 다건 삭제는 빈 목록·null 원소·중복 ID를 거부한다. 요청 ID 중 하나라도 조회되지 않으면 삭제 전에 404로 거부하며, 전체 성공 또는 전체 실패로 처리한다.
 - 메모는 JSON 본문으로 받는다. `memo: null` 또는 필드 누락은 null로 변경하고, 빈 문자열은 그대로 저장한다.
-- 메모 수정·다건 삭제·독서 상태 변경은 Service 메서드의 트랜잭션으로 묶는다. 등록은 외부 정보 준비 후 별도 `BookRegistrationWriter` 트랜잭션에서 처리한다.
+- 등록·변경·삭제는 각 업무의 DB 쓰기를 원자적으로 처리한다. Writer·Service·Adapter별 실제 트랜잭션 경계는 [도서 관리 구조](../architecture/book-management.md)에서 관리한다.
 - 목록 조회는 Shelf 자체의 존재·소유권을 먼저 확인한다. 본인 소유의 빈 서재는 200과 빈 배열, 없는·타인 소유 서재는 404다. ShelfBook 목록의 빈 결과만으로는 두 상황을 구분할 수 없다.
 
 ## 4. 외부 도서 검색 설계 및 현재 구현
+
+이 절의 현재 구현은 Feature 5 종료 시점을 뜻한다. 이후 처리 흐름·설정은 검색 아키텍처를 확인한다.
 
 ### 4.1. 현재 제공하는 기능
 

@@ -2,7 +2,7 @@
 
 ## 1. 범위와 책임
 
-Feature 5의 UserBook 등록·독서 상태 변경과 ShelfBook 연결·메모·삭제·목록 조회를 설명한다. 비즈니스 정책과 API 계약은 [Feature 5](../planning/feature-5-book-management.md#3-확정된-비즈니스-정책)에서 관리한다.
+현재 UserBook 등록·독서 상태 변경과 ShelfBook 연결·메모·삭제·목록 조회의 구현을 설명한다. 업무 규칙은 [현행 도서 관리 정책](../planning/book-management-policy.md)에서 관리한다. API 경로·입력·응답은 Controller·DTO와 생성 OpenAPI를 기준으로 확인한다.
 
 | 모델 | 책임 |
 |---|---|
@@ -28,7 +28,7 @@ ShelfBookAddController → ShelfBookAddUseCase → BookService
 
 클라이언트는 ISBN·독서 상태만 전달한다. 제목·저자 등을 다시 받아 저장하지 않고 서버가 확보한 메타데이터를 사용한다. 기존 UserBook은 메타데이터 조회·갱신 없이 재사용한다.
 
-외부 API와 Redis 대기 동안 DB 쓰기 트랜잭션을 유지하지 않도록 Writer를 별도 Spring Bean으로 분리했다. `BookService`가 Writer 프록시를 호출하면 트랜잭션이 시작된다. 등록 중 런타임 예외가 밖으로 전달되면 앞선 생성·상태 변경·연결도 롤백 대상이다. `ShelfBookAddIntegrationTest`는 앞 항목을 저장·변경한 뒤 뒤 항목에서 DB 제약 위반을 발생시키고, 트랜잭션 종료 후 JDBC로 전체 롤백을 확인한다. 테스트 메서드 자체에는 `@Transactional`을 붙이지 않는다.
+외부 API와 Redis 대기 동안 DB 쓰기 트랜잭션을 유지하지 않도록 Writer를 별도 Spring Bean으로 분리했다. `BookService`가 Writer 프록시를 호출하면 트랜잭션이 시작된다. 등록 중 런타임 예외가 밖으로 전달되면 앞선 생성·상태 변경·연결도 롤백 대상이다. 전체 롤백을 검증하는 픽스처와 트랜잭션 종료 후 조회 방법은 [테스트 전략](../learning/testing/book-search-testing-strategy.md#51-등록-트랜잭션의-롤백-검증)에 정리한다.
 
 Redis 저장과 PostgreSQL 쓰기는 하나의 분산 트랜잭션이 아니다. 등록이 롤백되어도 공용 메타데이터 캐시가 남는 것은 허용한다. 캐시의 수명과 장애 정책은 [검색 설계](book-search.md#메타데이터-캐시와-검색-세션)를 참고한다.
 
@@ -63,8 +63,8 @@ ShelfController → ShelfBookListUseCase → BookService.list() [readOnly]
 
 JPA Entity는 `UserBookEntity`를 참조하지만 도메인 ShelfBook은 `userBookId`만 가진다. 목록에서는 Domain 두 개를 중간에 만들지 않고 Adapter가 Entity 필드로 Application DTO를 구성한다. Application은 JPA Entity를 참조하지 않으며, `ShelfBookItem`도 Entity를 받는 변환 메서드를 두지 않는다.
 
-Controller는 UseCase의 `List<ShelfBookItem>`을 그대로 반환한다. 웹 응답과 조회 DTO의 필드가 같아 별도 Response를 만들지 않았다. 응답 계약을 독립적으로 변경할 필요가 생기면 분리한다. 현재 목록은 페이징 없이 전체 반환하고, 정렬은 [Feature 5 정책](../planning/feature-5-book-management.md#33-shelfbook과-데이터-보존)을 따른다.
+Controller는 UseCase의 `List<ShelfBookItem>`을 그대로 반환한다. 웹 응답과 조회 DTO의 필드가 같아 별도 Response를 만들지 않았다. 응답 계약을 독립적으로 변경할 필요가 생기면 분리한다. 현재 목록은 페이징 없이 전체 반환한다. 위치 지정 도서를 먼저 두고 position 오름차순 → 수정 시각 내림차순 → ID 내림차순으로 정렬한다. 메모 수정으로 수정 시각이 바뀌면 위치 미지정 도서의 순서도 달라질 수 있다. 실제 조회 정의는 [ShelfBookJpaRepository](../../src/main/java/com/myshelf/book/adapter/out/persistence/ShelfBookJpaRepository.java)를 따른다.
 
 ## 6. 검증 상태
 
-등록 Service·Writer 단위 테스트, 웹 입력·보안 테스트, PostgreSQL Adapter·실제 JWT API 통합 테스트와 Redis 캐시 테스트를 갖췄다. 관리·목록 API의 입력·소유권·기본 정렬, 다건 등록 전체 롤백, 마지막 연결 삭제와 Shelf CASCADE 이후 UserBook·다른 연결 보존을 검증한다. 실행 결과와 종료 기준은 [Feature 5 검증 기록](../planning/feature-5-book-management.md#6-구현-단계-및-완료-기준)에서 관리한다. 실제 외부 API의 지연·호출 제한과 운영 배포 검증은 이 자동화 테스트 범위에 포함하지 않는다.
+테스트 계층·실제 의존성·Mock 범위와 검증 방법은 [도서 테스트 전략](../learning/testing/book-search-testing-strategy.md)에서, 당시 실행 결과와 기능 종료 기준은 [Feature 5 검증 기록](../planning/feature-5-book-management.md#6-구현-단계-및-완료-기준)에서 관리한다. 실제 외부 API의 성능과 운영 배포는 해당 자동화 테스트의 검증 범위와 구분한다.

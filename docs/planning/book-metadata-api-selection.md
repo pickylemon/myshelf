@@ -168,7 +168,7 @@ API Key의 실제 값은 환경변수로 관리한다. 외부 API의 필드명·
 - [x] 검색 ID 계약 및 검색 상태 저장소 구현
 - [ ] Executor 크기·큐·타임아웃·외부 호출 제한 측정 및 조정
 - [x] 일부 검색 필드 실패 시 부분 결과를 반환하지 않는 정책 구현·테스트
-- [x] 현재 ISBN 계약 정리 — 외부 식별값 유지·정규화 미적용, 신규 메타데이터는 서버 캐시·외부 ISBN 조회로 확보. 세부 계약은 [Feature 5](./feature-5-book-management.md#32-userbook과-isbn) 참조
+- [x] Feature 5 당시 ISBN 계약 정리 — 외부 식별값 유지·정규화 미적용, 신규 메타데이터는 서버 캐시·외부 ISBN 조회로 확보. 당시 내용은 [Feature 5 기록](./feature-5-book-management.md#32-userbook과-isbn), 이후 규칙은 [현행 정책](book-management-policy.md) 참조
 - [ ] 외부 상품 상세 페이지 연결 방식 결정
 - [ ] 메타데이터 장기 저장·표지 이미지 표시 조건 최종 확인
 - [ ] API 최종 선정 및 ADR 작성 여부 결정

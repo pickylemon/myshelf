@@ -1,5 +1,7 @@
 # Redis에 도서 검색 세션 저장하기
 
+Feature 5 구현 과정의 저장소 분리·직렬화·만료 학습 기록이다. 아래 코드와 30분 TTL·프로필·오류 처리는 당시 예제이며 매 변경에 맞춰 덮어쓰지 않는다. 현재 구성은 [검색 아키텍처](../../architecture/book-search.md)에서 확인한다.
+
 ## 1. 검색 결과 캐시와 다른 점
 
 MyShelf는 외부 도서 검색 결과를 20권씩 반환한다. 외부 API에서는 더 많은 도서를 가져오므로, 다음 요청에 쓸 도서와 필드별 조회 위치를 보관해야 한다.
@@ -27,9 +29,8 @@ ExternalBookSearchService
 
 ## 3. 키와 값의 직렬화
 
-| 항목 | 현재 설정 |
+| 항목 | 학습 당시 설정 |
 |---|---|
-| 키 | `myshelf:book-search:{searchId}` |
 | 키 Serializer | `StringRedisSerializer` |
 | 값 | `BookSearchState` |
 | 값 Serializer | `JacksonJsonRedisSerializer<BookSearchState>` |
@@ -40,20 +41,15 @@ Redis는 Java 객체 참조를 보관하지 않는다. 저장할 때 JSON으로 
 
 ## 4. TTL은 마지막 저장부터 30분
 
+현재 저장소 구성은 [검색 아키텍처의 저장소 비교](../../architecture/book-search.md#메타데이터-캐시와-검색-세션)에서 확인한다. 아래 코드는 학습 당시 TTL이 저장과 함께 설정되는 방식을 설명하는 발췌다.
+
 ```java
 redisTemplate.opsForValue().set(KEY_PREFIX + searchId, state, TTL);
 ```
 
 `save()`는 상태와 30분의 만료 시간을 함께 설정한다. 더 보기 처리 후 같은 키에 저장하면 그 시점부터 다시 30분이다. `findById()`는 단순 조회이므로 TTL을 연장하지 않는다.
 
-| 상황 | 처리 |
-|---|---|
-| 결과가 더 남음 | 갱신된 상태 저장, TTL 재설정 |
-| 모든 결과 소진 | 세션 키 삭제 |
-| 사용자가 검색을 중단함 | 이후 저장이 없으면 TTL로 만료 |
-| 만료·미존재 키 조회 | 빈 결과 반환, Service에서 404 처리 |
-
-InMemory 구현에는 현재 TTL이 없다. 두 구현체가 같은 Port를 사용한다고 해서 수명 관리까지 같아지는 것은 아니다.
+운영 TTL의 숫자보다 중요한 점은 **재저장은 만료 시간을 다시 설정하지만 단순 조회는 연장하지 않는다**는 것이다. 저장소의 만료·종료 정책은 위 비교와 [검색 흐름](../../architecture/book-search.md#최초-검색과-더-보기)을 따른다. Port가 같더라도 InMemory 구현까지 같은 수명 관리를 보장하는 것은 아니다.
 
 ## 5. 세션 부재와 저장소 장애 구분
 

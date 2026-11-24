@@ -58,16 +58,9 @@ Workflow는 `.github/workflows/ci.yaml`에 YAML로 정의하고 Git으로 버전
 
 이를 통해 CI 구성을 코드와 함께 검토하고 변경 이력을 추적할 수 있다.
 
-현재 MyShelf Workflow는 네 Job으로 구성된다.
+각 Job은 별도 Runner에서 실행된다. `needs`는 선행 작업에 대한 의존성, `if`는 이벤트에 따른 실행 조건이다. 같은 선행 작업을 갖는 두 Job이라도 서로 의존하는 것은 아니다.
 
-- `build-and-test`: Gradle 빌드, Spotless 검사 및 PostgreSQL·Redis 통합 테스트
-- `verify-image`: PR에서 Docker 이미지 빌드 가능 여부 검증
-- `publish-image`: `main` Push 이후 동일 SHA 이미지 확인·재사용 또는 빌드·GHCR 게시
-- `publish-artifacts-to-s3`: 이미지 게시 성공 후 동일 커밋의 배포 파일을 S3에 게시·재사용
-
-각 Job은 별도 Runner에서 실행된다. 이미지 관련 Job은 `needs: build-and-test`, S3 게시 Job은 `needs: publish-image`로 의존성을 정의한다.
-
-다만 `verify-image`와 `publish-image`는 서로 의존하지 않는다. 실행 이벤트에 따라 둘 중 하나가 실행되도록 구성했다.
+실제 Job 목록·실행 조건·게시 권한은 [CI/CD 아키텍처](../../architecture/ci-cd.md#2-github-actions-ci-구성)와 [ci.yaml](../../../.github/workflows/ci.yaml)을 기준으로 한다. 이 문서는 Job·Step·Service의 차이와 검증 과정을 설명한다.
 
 ### 2.3 GitHub Actions를 선택한 이유
 
@@ -318,7 +311,7 @@ GitHub Actions가 실패했다고 해서 반드시 테스트 로직에 문제가
 
 ### 7.1 정상 실행 검증
 
-기존 MyShelf 테스트를 GitHub Actions에서 실행한 결과는 다음과 같다.
+초기 CI 구축 당시(2026-10-21) MyShelf 테스트를 실행한 결과다. 아래 수치는 최신 전체 테스트 수를 나타내지 않는다.
 
 | 항목 | 결과 |
 |---|---|
@@ -564,40 +557,7 @@ MyShelf는 다음과 같이 역할을 구분한다.
 
 따라서 PR에서는 이미지 생성 가능 여부를 확인하고, `main`에서는 게시할 이미지를 생성하도록 설계했다.
 
-아래는 초기 GHCR 게시 구현이다. 현재는 QEMU·멀티 플랫폼 설정과 기존 SHA 이미지 재사용·동시 게시 제한도 추가되어 있다. 최신 게시 흐름은 11절과 실제 YAML을 참고한다.
-
-```yaml
-publish-image:
-  name: publish-image
-  needs: build-and-test
-  if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-  runs-on: ubuntu-latest
-
-  permissions:
-    contents: read
-    packages: write
-
-  steps:
-    - name: Checkout repository
-      uses: actions/checkout@v7
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Log in to GHCR
-      uses: docker/login-action@v3
-      with:
-        registry: ghcr.io
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v6
-      with:
-        context: .
-        push: true
-        tags: ghcr.io/${{ github.repository }}:sha-${{ github.sha }}
-```
+초기 게시 단계의 로그인·빌드 YAML과 토큰 권한 해설은 [GHCR 학습](github-container-registry.md#3-github-actions에서-ghcr-게시-자동화)에 모아 둔다. 이 절에서는 검증과 게시를 이벤트별로 나눈 이유를 설명하며, 전체 게시 Job을 중복 복사하지 않는다. 현재 기존 SHA 이미지 재사용 조건은 CI/CD 아키텍처와 실제 YAML을 따른다.
 
 여기서 `github.actor`, `github.repository`, `github.sha`는 GitHub Actions의 Context를 참조하는 표현식이다.
 
@@ -663,35 +623,7 @@ PR #16과 `main` 병합 이후 다음 결과를 확인했다.
 
 **로컬 실행 검증**
 
-- GHCR Private 이미지 인증 성공
-- 게시된 이미지 다운로드 성공
-- Docker 컨테이너 생성 및 실행 성공
-- Spring Boot `local` 프로필 활성화
-- PostgreSQL 연결 성공
-- Flyway V1 마이그레이션 적용 성공
-- JPA 초기화 및 Spring Boot 정상 기동
-- 회원가입 API 동작 확인
-- 로그인 API HTTP 200 응답 및 Access Token 발급 확인
-
-이번 검증에서는 GitHub Actions가 GHCR에 게시한 이미지를 로컬에서 다시 빌드하지 않고 실행했다.
-
-특히 로컬 Docker Compose로 PostgreSQL 컨테이너를 준비하고, GHCR에서 다운로드한 이미지로 별도의 애플리케이션 컨테이너를 실행했다.
-
-실행 시에는 Docker 네트워크, 포트 매핑, 환경변수 및 Spring 프로필을 명시적으로 지정했다.
-
-Spring Boot 로그에서 DB 연결과 Flyway 마이그레이션이 성공했음을 확인했으며, 실제 회원가입 및 로그인 요청도 정상 처리되었다.
-
-따라서 이번 검증은 이미지 생성 가능 여부뿐 아니라 **게시된 이미지의 실제 실행 가능성과 기본 API 동작**까지 확인한 것이다.
-
-당시(2026-10)의 로컬 검증에서는 다음 항목이 범위 밖이었다.
-
-- 의도적인 Docker 이미지 빌드 실패 감지
-- EC2 운영 서버 실행 및 자동 배포
-- 배포 후 HTTP 응답 검증과 실패 시 롤백
-
-이후 **EC2 운영 배포와 자동 배포 후 기본 HTTP 검증은 2026-11-13 완료**했다. 의도적인 이미지 빌드 실패 검증과 자동 롤백은 아직 수행하지 않았다.
-
-GHCR 인증, Private 이미지 Pull 및 `docker run` 실행 과정의 상세 학습은 [GitHub Container Registry 학습 문서](github-container-registry.md)에 정리한다.
+게시된 Private 이미지를 인증·다운로드하여 별도 컨테이너에서 실행했고, `local` 프로필·PostgreSQL 연결·Flyway V1·JPA 초기화·회원가입·로그인 HTTP 200을 확인했다. 당시 환경·명령·출력과 검증 한계는 [GHCR 학습 문서](github-container-registry.md)에 보존한다. 이 절에는 같은 검증 결과의 목록과 실행 절차를 중복 유지하지 않는다.
 
 ### 10.8 CI 검증과 실제 배포의 관계
 
@@ -701,51 +633,7 @@ Docker는 Java 런타임과 애플리케이션 실행 파일 등 필요한 구�
 
 하지만 CPU 아키텍처, 컨테이너 실행 환경, DB 연결, 네트워크 등의 호환성은 별도로 확보해야 한다.
 
-현재 MyShelf에서 구현하고 검증한 흐름은 다음과 같다.
-
-```text
-PR 생성 및 업데이트
-        |
-        v
-  build-and-test
-        |
-        v
-   verify-image
-        |
-        v
-     PR 병합
-        |
-        v
-    push → main
-        |
-        v
-  build-and-test
-        |
-        v
-   publish-image
-        |
-        v
-       GHCR
-        |
-        | docker pull
-        v
-  로컬 컨테이너 실행
-        |
-        v
- PostgreSQL 및 API 검증
-```
-
-위 다이어그램은 **초기 CI/GHCR 구축 당시의 로컬 실행 검증 흐름**이다. 이후 SSH 기반 CD를 거쳐 현재 S3·SSM 방식으로 전환했다.
-
-```text
-main PR 병합 → CI 테스트 → GHCR 이미지 게시·재사용 → S3 아티팩트 게시·재사용
-                                                       ↓ CI 성공
-CD: OIDC 인증 → SSM 명령 → EC2 다운로드·검증 → current 전환
-                                                       ↓
-                                이미지 Pull → Compose 실행 → HTTP 확인
-```
-
-현재는 `sha-<커밋 SHA>` 이미지 태그와 같은 SHA의 S3 경로로 버전을 연결한다. Digest 고정은 후속 과제다. 이전 릴리스 복구 시도는 구현했지만 실제 실패 복구는 검증하지 않았다. [SSM 전환 기록](github-actions-cd.md#8-ssm-전환-및-실제-배포-검증)을 참고한다.
+초기 CI/GHCR 구축에서는 main 게시 이미지를 로컬에서 다운로드하고 PostgreSQL·API 동작을 확인했다. 상세 실행 결과는 [GHCR 검증 기록](github-container-registry.md), 이후 자동 배포 결과는 [CD 검증 기록](github-actions-cd.md#7-실제-최초-통합-검증)에 남긴다. 현재 CI→CD 전체 구조는 [CI/CD 아키텍처](../../architecture/ci-cd.md)를 기준으로 한다.
 
 여기서 중요한 원칙은 **Build Once, Deploy Many**이다.
 

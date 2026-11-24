@@ -38,4 +38,4 @@ Feature 5의 Shelf별 최소 도서 목록을 바탕으로 전체 도서 탐색�
 - [ ] 검색 응답의 독서 상태와 현재 등록 Shelf가 관리 대상 도서의 상태와 일치하고, 연결 없는 UserBook의 과거 상태를 노출하지 않는다.
 - [ ] 단위·웹·DB 통합 테스트 및 최신 빌드·CI를 확인한다.
 
-UserBook 보존·중복 등록·메모 소유권 정책은 [Feature 5의 확정 정책](./feature-5-book-management.md#3-확정된-비즈니스-정책)을 따른다.
+UserBook 보존·중복 등록·메모 소유권 정책은 [현행 도서 관리 정책](book-management-policy.md)을 따른다. Feature 5는 당시 개발·검증의 기록으로 참고한다.

@@ -34,6 +34,8 @@ Feature 5는 구현·테스트 후 main에 병합했습니다(PR #25). 이후 �
 
 진행 상태와 계획은 [로드맵](docs/planning/roadmap.md)에서 관리합니다.
 
+문서별 역할과 작성·수정 기준, 주제별 읽는 순서는 [문서 구성 및 관리 가이드](docs/documentation-guide.md)를 참고합니다.
+
 ---
 
 ## 2. 기술 스택
@@ -170,10 +172,6 @@ Swagger UI 기본 경로는 `/swagger-ui.html`, OpenAPI JSON은 `/v3/api-docs`�
 
 ### 관련 문서
 
-- [Dockerfile 멀티스테이지 빌드](docs/learning/infrastructure/dockerfile-multistage.md)
-- [PostgreSQL Docker Compose 구성](docs/learning/infrastructure/docker-compose-postgresql.md)
-- [Spring Boot와 PostgreSQL 통합 실행](docs/learning/infrastructure/docker-compose-spring-boot-postgresql.md)
-- [Docker 환경변수와 Spring Boot 설정](docs/learning/infrastructure/docker-environment-variables.md)
-- [도서 검색 설계](docs/architecture/book-search.md)
-- [Redis 검색 세션](docs/learning/infrastructure/redis-search-session.md)
-- [도서 검색 테스트 전략](docs/learning/testing/book-search-testing-strategy.md)
+- [문서 구성 및 관리 가이드](docs/documentation-guide.md): 문서별 역할·주제별 기준 문서·읽는 경로
+- [아키텍처 개요](docs/architecture/overview.md): 현재 기능과 책임·의존성
+- [개발 로드맵](docs/planning/roadmap.md): 진행 상태와 후속 범위
